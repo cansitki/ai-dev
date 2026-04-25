@@ -632,14 +632,13 @@ resource "docker_container" "workspace" {
     "/tmp" = "size=2g,mode=1777"
   }
 
-  # Bump inotify watcher limit — VS Code / next dev / chokidar-based watchers
-  # silently stop watching files past the kernel default (8192) on big repos.
-  # vm.swappiness=10 keeps long-running processes (Obsidian, dev servers)
-  # resident in RAM instead of being aggressively swapped.
-  sysctls = {
-    "fs.inotify.max_user_watches"   = "524288"
-    "fs.inotify.max_user_instances" = "1024"
-  }
+  # Note: inotify watcher limits (fs.inotify.max_user_watches and
+  # max_user_instances) are not namespaced in the default Linux kernel,
+  # so Docker rejects them as per-container sysctls. They must be set
+  # on the HOST instead, in /etc/sysctl.d/99-inotify.conf:
+  #   fs.inotify.max_user_watches = 524288
+  #   fs.inotify.max_user_instances = 1024
+  # The host's settings apply to all containers automatically.
 
   # Home directory volume
   volumes {
