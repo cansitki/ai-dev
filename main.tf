@@ -271,6 +271,15 @@ resource "coder_script" "symlinks" {
   script             = file("${path.module}/scripts/symlinks.sh")
 }
 
+resource "coder_script" "obsidian_serve" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Obsidian (headless)"
+  icon               = "/icon/folder.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/obsidian-serve.sh")
+}
+
 # =============================================================================
 # VS Code Server
 # =============================================================================
@@ -465,6 +474,37 @@ resource "coder_app" "gsd" {
   share        = "owner"
 }
 
+# Quick terminal launchers for inspecting historical resource usage.
+resource "coder_app" "sysstat_cpu" {
+  agent_id     = coder_agent.main.id
+  slug         = "sar-cpu"
+  display_name = "sar — CPU history"
+  icon         = "/icon/terminal.svg"
+  command      = "bash -l -c 'sar -u | less'"
+  share        = "owner"
+}
+
+resource "coder_app" "sysstat_ram" {
+  agent_id     = coder_agent.main.id
+  slug         = "sar-ram"
+  display_name = "sar — RAM history"
+  icon         = "/icon/terminal.svg"
+  command      = "bash -l -c 'sar -r | less'"
+  share        = "owner"
+}
+
+# Obsidian VNC — for one-time Sync login and any visual editing.
+# x11vnc binds to :5999 inside the workspace; Coder forwards that port.
+resource "coder_app" "obsidian_vnc" {
+  agent_id     = coder_agent.main.id
+  slug         = "obsidian-vnc"
+  display_name = "Obsidian VNC"
+  icon         = "/icon/folder.svg"
+  url          = "http://localhost:5999"
+  subdomain    = false
+  share        = "owner"
+}
+
 # =============================================================================
 # File Browser
 # =============================================================================
@@ -590,33 +630,10 @@ resource "docker_container" "workspace" {
     read_only      = false
   }
 
-  # Obsidian vault — shared with host (uid 1000 = both admin and coder)
-  volumes {
-    container_path = "/home/coder/vault"
-    host_path      = "/home/admin/obsidian-vault/Can"
-    read_only      = false
-  }
-
-  # Obsidian CLI socket directory — for obsidian CLI commands
-  volumes {
-    container_path = "/run/user/1000"
-    host_path      = "/run/user/1000"
-    read_only      = false
-  }
-
-  # Obsidian CLI binary
-  volumes {
-    container_path = "/usr/local/bin/obsidian"
-    host_path      = "/usr/local/bin/obsidian"
-    read_only      = true
-  }
-
-  # Obsidian CLI real binary
-  volumes {
-    container_path = "/home/admin/.local/bin/obsidian"
-    host_path      = "/home/admin/.local/bin/obsidian"
-    read_only      = true
-  }
+  # Obsidian Desktop runs INSIDE each workspace now (see scripts/obsidian-serve.sh).
+  # Vault, CLI, D-Bus socket, and Sync state all live in the home_volume —
+  # no host mounts needed for Obsidian. First-time Sync login is done via the
+  # "Obsidian VNC" Coder app.
 
   # Health check — verify the coder agent process is running
   healthcheck {
@@ -645,6 +662,6 @@ resource "docker_container" "workspace" {
   }
   labels {
     label = "coder.template_version"
-    value = "1.0.0"
+    value = "1.1.0"
   }
 }

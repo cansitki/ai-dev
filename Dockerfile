@@ -40,10 +40,12 @@ RUN apt-get update \
         fonts-powerline \
         git \
         htop \
+        iotop \
         jq \
         locales \
         man \
         nano \
+        nethogs \
         openssh-client \
         postgresql-16 \
         postgresql-contrib-16 \
@@ -52,11 +54,46 @@ RUN apt-get update \
         rsync \
         software-properties-common \
         sudo \
+        sysstat \
         tmux \
         unzip \
         vim \
         wget \
         zsh \
+        # Obsidian Desktop runtime deps (headless via Xvfb)
+        xvfb \
+        x11vnc \
+        dbus-x11 \
+        libnss3 \
+        libgbm1 \
+        libasound2t64 \
+        libatk-bridge2.0-0 \
+        libatk1.0-0 \
+        libcups2 \
+        libdrm2 \
+        libxkbcommon0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxrandr2 \
+        libgtk-3-0 \
+        libpango-1.0-0 \
+        libcairo2 \
+        libsecret-1-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Enable sysstat collection (sa1/sa2 cron) so `sar` has historical data.
+# Default Debian/Ubuntu config sets ENABLED=false; flip it on.
+RUN sed -i 's/ENABLED="false"/ENABLED="true"/' /etc/default/sysstat \
+    && sed -i 's/^HISTORY=.*/HISTORY=30/' /etc/sysstat/sysstat || true
+
+# Install Obsidian Desktop (.deb). Pinned via env var so bumping is one line.
+ENV OBSIDIAN_VERSION=1.7.7
+RUN curl -fsSL "https://github.com/obsidianmd/obsidian-releases/releases/download/v${OBSIDIAN_VERSION}/obsidian_${OBSIDIAN_VERSION}_amd64.deb" \
+        -o /tmp/obsidian.deb \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends /tmp/obsidian.deb \
+    && rm /tmp/obsidian.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 24 via NodeSource (always available, no nvm dependency)
