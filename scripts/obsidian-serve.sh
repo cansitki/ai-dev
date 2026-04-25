@@ -42,11 +42,13 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] || ! pgrep -u "$USER" -x dbus-daemon >
 fi
 
 # --- Obsidian Desktop ---
-if ! pgrep -f "obsidian" > /dev/null; then
+# Match the actual binary at /opt/Obsidian, not anything else with "obsidian"
+# in its name (which would include this script and obsidian-serve etc.)
+if ! pgrep -fx "/opt/Obsidian/obsidian.*" > /dev/null && ! pgrep -fx "obsidian.*--no-sandbox" > /dev/null; then
     echo -e "${BOLD}Starting Obsidian (headless)${NC}"
-    nohup obsidian --no-sandbox > "$HOME/.config/obsidian/obsidian.log" 2>&1 &
-    sleep 3
-    if pgrep -f "obsidian" > /dev/null; then
+    nohup obsidian --no-sandbox --disable-gpu > "$HOME/.config/obsidian/obsidian.log" 2>&1 &
+    sleep 4
+    if pgrep -fx "/opt/Obsidian/obsidian.*" > /dev/null || pgrep -fx "obsidian.*--no-sandbox" > /dev/null; then
         echo -e "${GREEN}Obsidian started${NC}"
     else
         echo -e "${YELLOW}Obsidian did not start — check ~/.config/obsidian/obsidian.log${NC}"
