@@ -98,6 +98,10 @@ RUN curl -fsSL "https://github.com/obsidianmd/obsidian-releases/releases/downloa
     && rm /tmp/obsidian.deb \
     && rm -rf /var/lib/apt/lists/*
 
+# Symlink vnc.html to index.html so Coder's app proxy (which strips paths
+# and hits the root of localhost:6080) finds the noVNC client at /.
+RUN ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+
 # Install Node.js 24 via NodeSource (always available, no nvm dependency)
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
