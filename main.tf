@@ -654,6 +654,13 @@ resource "docker_container" "workspace" {
     "/tmp" = "size=2g,mode=1777,exec"
   }
 
+  # seccomp=unconfined relaxes the Docker default seccomp profile. Required
+  # for Chromium/Electron processes (Obsidian, the obsidian-cli helper,
+  # Claude Code internals, Playwright, Puppeteer) to set up their user
+  # namespace sandboxes. Without this, those tools die with SIGTRAP on
+  # "Failed to move to new namespace ... Operation not permitted".
+  security_opts = ["seccomp=unconfined"]
+
   # Note: inotify watcher limits (fs.inotify.max_user_watches and
   # max_user_instances) are not namespaced in the default Linux kernel,
   # so Docker rejects them as per-container sysctls. They must be set

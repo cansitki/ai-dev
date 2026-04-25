@@ -90,7 +90,9 @@ RUN sed -i 's/ENABLED="false"/ENABLED="true"/' /etc/default/sysstat \
     && sed -i 's/^HISTORY=.*/HISTORY=30/' /etc/sysstat/sysstat || true
 
 # Install Obsidian Desktop (.deb). Pinned via env var so bumping is one line.
-ENV OBSIDIAN_VERSION=1.7.7
+# 1.12+ ships improved CLI support that the can-workbench obsidian-cli
+# binary expects; older installers segfault on commands.
+ENV OBSIDIAN_VERSION=1.12.7
 RUN curl -fsSL "https://github.com/obsidianmd/obsidian-releases/releases/download/v${OBSIDIAN_VERSION}/obsidian_${OBSIDIAN_VERSION}_amd64.deb" \
         -o /tmp/obsidian.deb \
     && apt-get update \
