@@ -627,9 +627,11 @@ resource "docker_container" "workspace" {
 
   # tmpfs /tmp — build artifacts and scratch files stay in RAM (capped at 2GB),
   # auto-cleared on container restart. Stops /tmp from filling the home volume
-  # over months of use.
+  # over months of use. `exec` is required because the Coder agent script
+  # downloads its binary into /tmp and runs it; Docker tmpfs mounts default
+  # to noexec which blocks that.
   tmpfs = {
-    "/tmp" = "size=2g,mode=1777"
+    "/tmp" = "size=2g,mode=1777,exec"
   }
 
   # Note: inotify watcher limits (fs.inotify.max_user_watches and
