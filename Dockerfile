@@ -98,9 +98,15 @@ RUN curl -fsSL "https://github.com/obsidianmd/obsidian-releases/releases/downloa
     && rm /tmp/obsidian.deb \
     && rm -rf /var/lib/apt/lists/*
 
-# Symlink vnc.html to index.html so Coder's app proxy (which strips paths
-# and hits the root of localhost:6080) finds the noVNC client at /.
-RUN ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+# Coder's app proxy strips the path and hits the root of localhost:6080.
+# Plant a tiny index.html that redirects to vnc.html with autoconnect so
+# clicking the Obsidian VNC app gives one-click access to the desktop.
+# (A symlink does NOT work — websockify's Python HTTP handler doesn't
+# follow symlinks for index files.)
+RUN printf '%s\n' \
+    '<!DOCTYPE html>' \
+    '<meta http-equiv="refresh" content="0;url=vnc.html?autoconnect=1&resize=scale">' \
+    > /usr/share/novnc/index.html
 
 # Install Node.js 24 via NodeSource (always available, no nvm dependency)
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
