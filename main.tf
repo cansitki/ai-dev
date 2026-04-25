@@ -529,13 +529,20 @@ module "filebrowser" {
 # GitHub Integration
 # =============================================================================
 
-module "github-upload-public-key" {
-  count            = data.coder_workspace.me.start_count
-  source           = "registry.coder.com/coder/github-upload-public-key/coder"
-  version          = "1.0.15"
-  agent_id         = coder_agent.main.id
-  external_auth_id = "primary-github"
-}
+# Disabled: requires GitHub OAuth ('primary-github' external auth) to be
+# set up on the Coder server first. Re-enable once OAuth is configured:
+#   1. Create OAuth app at github.com/settings/developers
+#   2. Configure in Coder: Admin Settings → External Auth → New Provider
+#      ID = primary-github, Client ID/Secret from the OAuth app
+#   3. Uncomment the block below and re-push the template.
+#
+# module "github-upload-public-key" {
+#   count            = data.coder_workspace.me.start_count
+#   source           = "registry.coder.com/coder/github-upload-public-key/coder"
+#   version          = "1.0.15"
+#   agent_id         = coder_agent.main.id
+#   external_auth_id = "primary-github"
+# }
 
 module "git-commit-signing" {
   count    = data.coder_workspace.me.start_count
