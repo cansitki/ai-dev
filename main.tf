@@ -519,10 +519,11 @@ resource "coder_app" "obsidian_vnc" {
   display_name = "Obsidian VNC"
   icon         = "/icon/folder.svg"
   # noVNC + websockify bridge serves the VNC GUI over HTTP at 6080.
-  # The container's index.html (planted in the Dockerfile) does a meta
-  # refresh to vnc.html?autoconnect=1, so we point Coder at the root.
+  # subdomain=true so Coder routes via wildcard host (works with WebSockets,
+  # which path-based proxying mangles). Requires CODER_WILDCARD_ACCESS_URL
+  # set on the Coder server (e.g. *.dev.bmu.one).
   url       = "http://localhost:6080/"
-  subdomain = false
+  subdomain = true
   share     = "owner"
 }
 
