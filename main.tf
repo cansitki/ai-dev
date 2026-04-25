@@ -519,8 +519,9 @@ resource "coder_app" "obsidian_vnc" {
   display_name = "Obsidian VNC"
   icon         = "/icon/folder.svg"
   # noVNC + websockify bridge serves the VNC GUI over HTTP at 6080.
-  # vnc.html?autoconnect=1 skips the connect form for one-click access.
-  url       = "http://localhost:6080/vnc.html?autoconnect=1&resize=scale"
+  # The container's index.html (planted in the Dockerfile) does a meta
+  # refresh to vnc.html?autoconnect=1, so we point Coder at the root.
+  url       = "http://localhost:6080/"
   subdomain = false
   share     = "owner"
 }
