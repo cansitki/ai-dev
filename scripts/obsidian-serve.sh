@@ -61,6 +61,13 @@ if ! pgrep -f "x11vnc.*:${DISPLAY_NUM}" > /dev/null; then
            > /dev/null 2>&1 || true
 fi
 
+# --- noVNC HTTP/WebSocket bridge so Coder's app proxy can serve the GUI ---
+NOVNC_PORT=6080
+if ! tmux has-session -t novnc 2>/dev/null; then
+    echo -e "${BOLD}Starting noVNC bridge on port ${NOVNC_PORT}${NC}"
+    tmux new-session -d -s novnc "websockify --web=/usr/share/novnc ${NOVNC_PORT} localhost:${VNC_PORT}"
+fi
+
 # --- Source D-Bus env into login shells so `obsidian` CLI works ---
 if ! grep -q "obsidian dbus env" "$HOME/.zshenv" 2>/dev/null; then
     cat >> "$HOME/.zshenv" <<'EOF'

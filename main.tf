@@ -518,9 +518,11 @@ resource "coder_app" "obsidian_vnc" {
   slug         = "obsidian-vnc"
   display_name = "Obsidian VNC"
   icon         = "/icon/folder.svg"
-  url          = "http://localhost:5999"
-  subdomain    = false
-  share        = "owner"
+  # noVNC + websockify bridge serves the VNC GUI over HTTP at 6080.
+  # vnc.html?autoconnect=1 skips the connect form for one-click access.
+  url       = "http://localhost:6080/vnc.html?autoconnect=1&resize=scale"
+  subdomain = false
+  share     = "owner"
 }
 
 # =============================================================================

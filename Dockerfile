@@ -63,6 +63,8 @@ RUN apt-get update \
         # Obsidian Desktop runtime deps (headless via Xvfb)
         xvfb \
         x11vnc \
+        novnc \
+        websockify \
         dbus-x11 \
         libnss3 \
         libgbm1 \
