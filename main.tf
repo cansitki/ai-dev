@@ -280,6 +280,15 @@ resource "coder_script" "obsidian_serve" {
   script             = file("${path.module}/scripts/obsidian-serve.sh")
 }
 
+resource "coder_script" "optimize_runtime" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Runtime Optimizations"
+  icon               = "/icon/terminal.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/optimize-runtime.sh")
+}
+
 # =============================================================================
 # VS Code Server
 # =============================================================================
@@ -616,6 +625,22 @@ resource "docker_container" "workspace" {
   memory_swap = 32768
   cpu_shares  = 6144
 
+  # tmpfs /tmp — build artifacts and scratch files stay in RAM (capped at 2GB),
+  # auto-cleared on container restart. Stops /tmp from filling the home volume
+  # over months of use.
+  tmpfs = {
+    "/tmp" = "size=2g,mode=1777"
+  }
+
+  # Bump inotify watcher limit — VS Code / next dev / chokidar-based watchers
+  # silently stop watching files past the kernel default (8192) on big repos.
+  # vm.swappiness=10 keeps long-running processes (Obsidian, dev servers)
+  # resident in RAM instead of being aggressively swapped.
+  sysctls = {
+    "fs.inotify.max_user_watches"   = "524288"
+    "fs.inotify.max_user_instances" = "1024"
+  }
+
   # Home directory volume
   volumes {
     container_path = "/home/coder"
@@ -662,6 +687,6 @@ resource "docker_container" "workspace" {
   }
   labels {
     label = "coder.template_version"
-    value = "1.1.0"
+    value = "1.2.0"
   }
 }
