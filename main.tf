@@ -289,6 +289,15 @@ resource "coder_script" "optimize_runtime" {
   script             = file("${path.module}/scripts/optimize-runtime.sh")
 }
 
+resource "coder_script" "claudeclaw" {
+  agent_id           = coder_agent.main.id
+  display_name       = "ClaudeClaw (Telegram bridge)"
+  icon               = "/icon/terminal.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/claudeclaw-serve.sh")
+}
+
 # =============================================================================
 # VS Code Server
 # =============================================================================
