@@ -1,0 +1,71 @@
+#!/bin/bash
+# Interactive tmux session picker for the workspace.
+# Lists all projects under ~/projects and any extra existing tmux sessions.
+# Selecting an entry attaches to its tmux session, creating it on demand.
+
+set -u
+
+PROJECTS_DIR="${HOME}/projects"
+
+while true; do
+  clear
+  echo "=== Workspace Tmux Picker ==="
+  echo
+
+  mapfile -t projects < <(find "$PROJECTS_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%f\n' | sort)
+
+  mapfile -t sessions < <(tmux ls -F '#S' 2>/dev/null | sort)
+
+  declare -A is_project=()
+  for p in "${projects[@]}"; do is_project["$p"]=1; done
+
+  extras=()
+  for s in "${sessions[@]}"; do
+    [[ -z "${is_project[$s]:-}" ]] && extras+=("$s")
+  done
+
+  i=1
+  declare -A choice_name=()
+  declare -A choice_cwd=()
+
+  echo "Projects (~/projects):"
+  for p in "${projects[@]}"; do
+    marker=" "
+    for s in "${sessions[@]}"; do [[ "$s" == "$p" ]] && marker="*"; done
+    printf "  %2d) [%s] %s\n" "$i" "$marker" "$p"
+    choice_name[$i]="$p"
+    choice_cwd[$i]="${PROJECTS_DIR}/${p}"
+    i=$((i+1))
+  done
+
+  if [[ ${#extras[@]} -gt 0 ]]; then
+    echo
+    echo "Other live tmux sessions:"
+    for s in "${extras[@]}"; do
+      printf "  %2d) [*] %s\n" "$i" "$s"
+      choice_name[$i]="$s"
+      choice_cwd[$i]="$HOME"
+      i=$((i+1))
+    done
+  fi
+
+  echo
+  echo "  q) quit    r) refresh"
+  echo "  [*] = session already running"
+  echo
+  read -r -p "Choose: " sel
+
+  case "$sel" in
+    q|Q) exit 0 ;;
+    r|R|"") continue ;;
+    *)
+      if [[ "$sel" =~ ^[0-9]+$ ]] && [[ -n "${choice_name[$sel]:-}" ]]; then
+        name="${choice_name[$sel]}"
+        cwd="${choice_cwd[$sel]}"
+        tmux new-session -A -s "$name" -c "$cwd"
+      else
+        echo "Invalid choice"; sleep 1
+      fi
+      ;;
+  esac
+done

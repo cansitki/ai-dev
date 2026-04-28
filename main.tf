@@ -280,6 +280,15 @@ resource "coder_script" "obsidian_serve" {
   script             = file("${path.module}/scripts/obsidian-serve.sh")
 }
 
+resource "coder_script" "ttyd_serve" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Tmux Picker (ttyd)"
+  icon               = "/icon/terminal.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/ttyd-serve.sh")
+}
+
 resource "coder_script" "optimize_runtime" {
   agent_id           = coder_agent.main.id
   display_name       = "Runtime Optimizations"
@@ -525,6 +534,17 @@ resource "coder_app" "obsidian_vnc" {
   url       = "http://localhost:6080/"
   subdomain = true
   share     = "owner"
+}
+
+# Browser-accessible tmux session picker (ttyd on :7681).
+resource "coder_app" "tmux_picker" {
+  agent_id     = coder_agent.main.id
+  slug         = "tmux"
+  display_name = "Tmux"
+  icon         = "/icon/terminal.svg"
+  url          = "http://localhost:7681"
+  subdomain    = true
+  share        = "owner"
 }
 
 # =============================================================================

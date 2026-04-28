@@ -56,6 +56,7 @@ RUN apt-get update \
         sudo \
         sysstat \
         tmux \
+        ttyd \
         unzip \
         vim \
         wget \
