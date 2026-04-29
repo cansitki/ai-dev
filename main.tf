@@ -307,6 +307,15 @@ resource "coder_script" "claudeclaw" {
   script             = file("${path.module}/scripts/claudeclaw-serve.sh")
 }
 
+resource "coder_script" "discord_bot" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Discord Bot"
+  icon               = "/icon/terminal.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/discord-bot-serve.sh")
+}
+
 # =============================================================================
 # VS Code Server
 # =============================================================================
