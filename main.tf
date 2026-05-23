@@ -316,6 +316,15 @@ resource "coder_script" "openclaw_gateway" {
   script             = file("${path.module}/scripts/openclaw-gateway-serve.sh")
 }
 
+resource "coder_script" "workspace_r2_raw_backup" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Workspace R2 Raw Backup"
+  icon               = "/icon/database.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/workspace-r2-raw-backup-loop.sh")
+}
+
 resource "coder_script" "ttyd_serve" {
   agent_id           = coder_agent.main.id
   display_name       = "Tmux Picker (ttyd)"
@@ -332,15 +341,6 @@ resource "coder_script" "optimize_runtime" {
   run_on_start       = true
   start_blocks_login = false
   script             = file("${path.module}/scripts/optimize-runtime.sh")
-}
-
-resource "coder_script" "claudeclaw" {
-  agent_id           = coder_agent.main.id
-  display_name       = "ClaudeClaw (Telegram bridge)"
-  icon               = "/icon/terminal.svg"
-  run_on_start       = true
-  start_blocks_login = false
-  script             = file("${path.module}/scripts/claudeclaw-serve.sh")
 }
 
 resource "coder_script" "discord_bot" {

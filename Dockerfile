@@ -52,6 +52,7 @@ RUN apt-get update \
         python3 \
         python3-pip \
         python3-venv \
+        rclone \
         rsync \
         software-properties-common \
         sudo \
