@@ -8,8 +8,7 @@ A production-ready Coder template for AI-assisted full-stack development. Featur
 - **Claude Code** - Anthropic's coding agent with CLI and web interface
 - **OpenCode** - Open-source AI coding assistant with CLI and web UI
 - **Pi** - Minimal terminal coding agent with extension support
-- **GSD (get-shit-done)** - Meta-prompting system for Claude Code and OpenCode
-- **GSD-2** - Autonomous development agent for Pi
+- **GSD-2** - Autonomous development agent for Pi (`gsd-pi`); GSD-1/get-shit-done-cc is intentionally not installed
 - All AI tools are configurable via template variables
 
 ### Development Environment
@@ -111,7 +110,7 @@ cpu_shares  = 6144    # 6 CPU cores (relative weight)
 |  |  - Claude Code (CLI + web)             |  |
 |  |  - OpenCode (CLI + web UI :62748)      |  |
 |  |  - Pi (terminal)                       |  |
-|  |  - GSD / GSD-2 (slash commands)        |  |
+|  |  - GSD-2 / gsd-pi                      |  |
 |  +----------------------------------------+  |
 |                                              |
 |  +----------------------------------------+  |
@@ -167,12 +166,8 @@ groups | grep docker
 docker info
 ```
 
-### GSD commands not available
+### GSD2 commands not available
 ```bash
-# Reinstall for Claude Code + OpenCode
-npx get-shit-done-cc@latest --claude --opencode --global
-
-# Reinstall for Pi
 npm install -g gsd-pi
 ```
 
@@ -189,7 +184,6 @@ npm install -g gsd-pi
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 - [OpenCode](https://opencode.ai)
 - [Pi Coding Agent](https://github.com/badlogic/pi-mono)
-- [GSD (get-shit-done)](https://github.com/gsd-build/get-shit-done)
 - [GSD-2](https://github.com/gsd-build/gsd-2)
 - [Starship Prompt](https://starship.rs)
 - [Foundry Book](https://book.getfoundry.sh)

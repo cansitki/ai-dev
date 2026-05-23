@@ -51,6 +51,7 @@ RUN apt-get update \
         postgresql-contrib-16 \
         python3 \
         python3-pip \
+        python3-venv \
         rsync \
         software-properties-common \
         sudo \

@@ -34,8 +34,7 @@ if [ ! -f ~/.workspace_initialized ]; then
 - **Claude Code**: `claude` in terminal or use the web app
 - **OpenCode**: `opencode` in terminal or use the web UI
 - **Pi**: `pi` in terminal
-- **GSD (Claude/OpenCode)**: `/gsd:help` inside Claude Code or OpenCode
-- **GSD (Pi)**: `/gsd help` inside Pi
+- **GSD2 (Pi)**: `/gsd help` inside Pi, or `gsd` / `gsd-pi` in terminal
 
 ### Available Tools & Versions
 - **Node.js**: v24 (default), also available: 18, 20, 22
@@ -56,6 +55,7 @@ if [ ! -f ~/.workspace_initialized ]; then
 claude                       # Start Claude Code
 opencode                     # Start OpenCode
 pi                           # Start Pi coding agent
+gsd                          # Start GSD2 / gsd-pi
 
 # Docker
 docker ps                    # List running containers

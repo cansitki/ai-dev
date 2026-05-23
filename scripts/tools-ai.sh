@@ -55,13 +55,8 @@ cat > $HOME/.config/pi/config.json << PIEOF
 PIEOF
 %{endif}
 
-# Install GSD for Claude Code and OpenCode
-install_if_missing "GSD (get-shit-done)" "" "$HOME/.claude/commands/gsd" '
-  npx get-shit-done-cc@latest --claude --opencode --global --yes 2>/dev/null || \
-  npx get-shit-done-cc@latest --claude --opencode --global 2>/dev/null || true
-'
-
-# Install GSD-2 for Pi
+# Install GSD-2 for Pi. Do not install GSD-1/get-shit-done-cc; the old
+# Claude/OpenCode command/hook stack was intentionally removed from this VM.
 install_if_missing "GSD-2 (gsd-pi)" "gsd" "" '
   npm install -g gsd-pi
 '

@@ -249,6 +249,15 @@ resource "coder_script" "tools_ci" {
   })
 }
 
+resource "coder_script" "projects_bootstrap" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Project Bootstrap"
+  icon               = "/icon/git.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/projects-bootstrap.sh")
+}
+
 resource "coder_script" "tools_ai" {
   agent_id           = coder_agent.main.id
   display_name       = "AI Tools"
@@ -278,6 +287,24 @@ resource "coder_script" "obsidian_serve" {
   run_on_start       = true
   start_blocks_login = false
   script             = file("${path.module}/scripts/obsidian-serve.sh")
+}
+
+resource "coder_script" "openclaw_install" {
+  agent_id           = coder_agent.main.id
+  display_name       = "OpenClaw Install"
+  icon               = "/icon/terminal.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/openclaw-install.sh")
+}
+
+resource "coder_script" "openclaw_gateway" {
+  agent_id           = coder_agent.main.id
+  display_name       = "OpenClaw Gateway"
+  icon               = "/icon/terminal.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/openclaw-gateway-serve.sh")
 }
 
 resource "coder_script" "ttyd_serve" {
@@ -543,6 +570,16 @@ resource "coder_app" "obsidian_vnc" {
   url       = "http://localhost:6080/"
   subdomain = true
   share     = "owner"
+}
+
+resource "coder_app" "openclaw_gateway" {
+  agent_id     = coder_agent.main.id
+  slug         = "openclaw"
+  display_name = "OpenClaw"
+  icon         = "/icon/terminal.svg"
+  url          = "http://localhost:18789"
+  subdomain    = true
+  share        = "owner"
 }
 
 # Browser-accessible tmux session picker (ttyd on :7681).

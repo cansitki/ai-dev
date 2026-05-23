@@ -27,13 +27,26 @@ if [ ! -d "$BOT_DIR" ]; then
     exit 0
 fi
 
+if [ ! -f "$BOT_DIR/.env" ] && [ -f "$BOT_DIR/.env.example" ]; then
+    cp "$BOT_DIR/.env.example" "$BOT_DIR/.env"
+    chmod 600 "$BOT_DIR/.env"
+    echo -e "${YELLOW}Created $BOT_DIR/.env from .env.example. Fill tokens before the bot can start.${NC}"
+fi
+
 if [ ! -f "$BOT_DIR/.env" ]; then
     echo -e "${YELLOW}discord-bot .env missing — skipping${NC}"
     exit 0
 fi
 
 if [ ! -x "$BOT_DIR/.venv/bin/python" ]; then
-    echo -e "${YELLOW}discord-bot .venv not built — skipping${NC}"
+    echo -e "${BOLD}Building discord-bot virtualenv${NC}"
+    python3 -m venv "$BOT_DIR/.venv"
+    "$BOT_DIR/.venv/bin/python" -m pip install --upgrade pip wheel
+    "$BOT_DIR/.venv/bin/python" -m pip install -e "$BOT_DIR"
+fi
+
+if ! grep -Eq '^DISCORD_BOT_TOKEN=.+$' "$BOT_DIR/.env"; then
+    echo -e "${YELLOW}discord-bot token not configured in $BOT_DIR/.env — skipping start${NC}"
     exit 0
 fi
 
