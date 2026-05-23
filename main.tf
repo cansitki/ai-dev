@@ -258,6 +258,15 @@ resource "coder_script" "projects_bootstrap" {
   script             = file("${path.module}/scripts/projects-bootstrap.sh")
 }
 
+resource "coder_script" "vault_github_backup" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Vault GitHub Backup"
+  icon               = "/icon/git.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/vault-github-backup-loop.sh")
+}
+
 resource "coder_script" "tools_ai" {
   agent_id           = coder_agent.main.id
   display_name       = "AI Tools"
