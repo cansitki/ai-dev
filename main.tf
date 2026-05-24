@@ -280,6 +280,24 @@ resource "coder_script" "tools_ai" {
   })
 }
 
+resource "coder_script" "codex_usage_guard" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Codex Usage Guard"
+  icon               = "/icon/terminal.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = <<-EOT
+    #!/bin/bash
+    set -euo pipefail
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/codex-usage-guard" <<'PY'
+${file("${path.module}/scripts/codex-usage-guard.py")}
+PY
+    chmod +x "$HOME/.local/bin/codex-usage-guard"
+    echo "Installed codex-usage-guard"
+  EOT
+}
+
 resource "coder_script" "symlinks" {
   agent_id           = coder_agent.main.id
   display_name       = "Tool Symlinks"

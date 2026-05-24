@@ -9,6 +9,7 @@ A production-ready Coder template for AI-assisted full-stack development. Featur
 - **OpenCode** - Open-source AI coding assistant with CLI and web UI
 - **Pi** - Minimal terminal coding agent with extension support
 - **GSD-2** - Autonomous development agent for Pi (`gsd-pi`); GSD-1/get-shit-done-cc is intentionally not installed
+- **Codex usage guard** - Local budget guard for unattended Codex runs using Codex session rate-limit telemetry
 - All AI tools are configurable via template variables
 
 ### Development Environment
@@ -61,6 +62,7 @@ coder ssh my-workspace
 claude --version          # Claude Code
 opencode --version        # OpenCode
 pi --version              # Pi coding agent
+codex-usage-guard status  # Codex weekly/primary usage from local session logs
 docker ps                 # Docker access
 node --version            # Node.js
 bun --version             # Bun
@@ -172,6 +174,18 @@ docker info
 ```bash
 npm install -g gsd-pi
 ```
+
+### Guard unattended Codex usage
+Use a named budget before overnight puzzle runs. The default sleep mode records the current weekly Codex percentage as the baseline and allows 10 additional percentage points while keeping a 1 point reserve.
+
+```bash
+codex-usage-guard status
+codex-usage-guard start --name sleep --max-weekly-delta-percent 10
+codex-usage-guard check --name sleep
+codex-usage-guard run --name sleep -- codex exec "work on puzzle handoff"
+```
+
+Run `codex-usage-guard check --name sleep` before loop iterations, or wrap worker launches with `codex-usage-guard run --name sleep -- ...`. A non-zero exit means the master must stop new Codex work and leave the puzzle state in files.
 
 ### Obsidian CLI cannot find Obsidian
 The Coder script `scripts/obsidian-serve.sh` must start the Desktop app with `/opt/Obsidian/obsidian`, not `obsidian`, because `~/.local/bin/obsidian` is the CLI helper. The script runs a Desktop watchdog in tmux session `obsidian-headless`, opens the workspace vault at `~/Can`, restarts Desktop if it exits, and keeps `~/vault` as a compatibility symlink.
