@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,11 @@ from typing import Any
 DEFAULT_ROOT = Path(os.environ.get("PUZZLE_SWARM_ROOT", "~/puzzles")).expanduser()
 DEFAULT_SEEDCHECKER = Path(os.environ.get("SEEDCHECKER_HOME", "~/projects/seed-checker")).expanduser()
 MAX_AUTO_CHECKER_ETA_SEC = 16 * 60 * 60
+L2_MODEL_LANES = ("deepseek-v4-pro", "qwen3.7-max", "qwen3.6")
+L3_MODEL_LANES = L2_MODEL_LANES
+MIN_PROPOSALS_PER_L2_MODEL = 10
+MIN_SELECTED_METHODS_PER_ROUND = 5
+NO_HIT_NEW_ROUND_THRESHOLD = 3
 REQUIRED_CHECKER_FIELDS = (
     "checker_job_id",
     "puzzle_id",
@@ -60,6 +66,23 @@ SECRET_FIELD_NAMES = {
     "token",
     "api_key",
 }
+MODEL_LANE_ALIASES = {
+    "deepseek-v4-pro": "deepseek-v4-pro",
+    "deepseekv4pro": "deepseek-v4-pro",
+    "deepseek-v4": "deepseek-v4-pro",
+    "qwen3.7-max": "qwen3.7-max",
+    "qwen-3.7-max": "qwen3.7-max",
+    "qwen37max": "qwen3.7-max",
+    "qwen3.7max": "qwen3.7-max",
+    "qwen-max": "qwen3.7-max",
+    "qwen3.6": "qwen3.6",
+    "qwen-3.6": "qwen3.6",
+    "qwen36": "qwen3.6",
+    "qwen3.6-pro": "qwen3.6",
+    "qwen3.6-plus": "qwen3.6",
+    "qwen-3.6-pro": "qwen3.6",
+    "qwen-3.6-plus": "qwen3.6",
+}
 
 
 def utcnow() -> str:
@@ -81,6 +104,26 @@ def slugify(value: str) -> str:
     if not slug:
         raise SystemExit("id cannot be empty")
     return slug
+
+
+def canonical_model_lane(value: str) -> str:
+    normalized = re.sub(r"[\s_]+", "-", value.strip().lower())
+    compact = normalized.replace("-", "")
+    lane = MODEL_LANE_ALIASES.get(normalized) or MODEL_LANE_ALIASES.get(compact)
+    if lane not in L3_MODEL_LANES:
+        allowed = ", ".join(L3_MODEL_LANES)
+        raise SystemExit(f"unsupported model lane `{value}`; allowed: {allowed}")
+    return lane
+
+
+def read_status(workspace_dir: Path) -> dict[str, Any]:
+    path = workspace_dir / "status" / "state.json"
+    if not path.exists():
+        return {}
+    try:
+        return read_json(path)
+    except Exception:
+        return {}
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -156,12 +199,7 @@ def event(workspace_dir: Path, event_type: str, **data: Any) -> None:
 
 def update_status(workspace_dir: Path, **data: Any) -> None:
     path = workspace_dir / "status" / "state.json"
-    current: dict[str, Any] = {}
-    if path.exists():
-        try:
-            current = read_json(path)
-        except Exception:
-            current = {}
+    current = read_status(workspace_dir)
     current.update(data)
     current["updated_at"] = utcnow()
     write_json(path, current)
@@ -191,8 +229,10 @@ def command_init(args: argparse.Namespace) -> int:
         "memory",
         "memory/past-methods",
         "methods",
+        "negative-results",
         "claims",
         "decisions",
+        "layer2/rounds",
         "tasks/layer2",
         "tasks/layer3/queued",
         "tasks/layer3/active",
@@ -202,6 +242,7 @@ def command_init(args: argparse.Namespace) -> int:
         "checker/waiting",
         "checker/results",
         "handoffs",
+        "provider/failures",
         "artifacts",
         "runs",
         "logs",
@@ -224,14 +265,30 @@ def command_init(args: argparse.Namespace) -> int:
             "eta_over_16h_requires_can": True,
             "internet_policy": "read-only",
         },
+        "model_lanes": {
+            "layer1": ["master-codex", "can"],
+            "layer2": list(L2_MODEL_LANES),
+            "layer3": list(L3_MODEL_LANES),
+        },
+        "round_policy": {
+            "no_hit_new_round_threshold": NO_HIT_NEW_ROUND_THRESHOLD,
+            "min_proposals_per_layer2_model": MIN_PROPOSALS_PER_L2_MODEL,
+            "min_selected_methods_per_round": MIN_SELECTED_METHODS_PER_ROUND,
+        },
     }
     write_json(ws / "source" / "puzzle_brief.json", brief, overwrite=not args.no_overwrite)
     write_text(ws / "CURRENT_TRUTH.md", current_truth_template(brief), overwrite=not args.no_overwrite)
     write_text(ws / "README.md", readme_template(brief), overwrite=not args.no_overwrite)
     write_text(ws / "AGENTS.md", agents_template(brief), overwrite=not args.no_overwrite)
     write_text(ws / "methods" / "index.md", "# Methods Index\n\nNo methods recorded yet.\n", overwrite=False)
+    write_json(
+        ws / "methods" / "registry.json",
+        {"version": 1, "methods": {}, "signatures": {}},
+        overwrite=False,
+    )
     write_text(ws / "memory" / "past-methods" / "index.md", "# Past Methods\n\nUse one file per method. Summarize killed branches here.\n", overwrite=False)
-    for rel in ("claims/promoted.jsonl", "decisions/decisions.jsonl", "logs/events.jsonl"):
+    write_text(ws / "layer2" / "rounds" / "index.md", "# Layer 2 Rounds\n\nNo rounds recorded yet.\n", overwrite=False)
+    for rel in ("claims/promoted.jsonl", "decisions/decisions.jsonl", "logs/events.jsonl", "negative-results/negative_results.jsonl"):
         (ws / rel).touch(exist_ok=True)
 
     update_status(
@@ -241,6 +298,8 @@ def command_init(args: argparse.Namespace) -> int:
         active_layer2_tasks=0,
         active_layer3_tasks=0,
         waiting_checker_jobs=0,
+        consecutive_no_hit_checks=0,
+        layer2_new_round_required=False,
     )
     event(ws, "workspace_initialized", puzzle_id=puzzle_id, workspace=str(ws))
     print(str(ws))
@@ -282,6 +341,8 @@ Start here:
 - `source/puzzle_brief.json`
 - `CURRENT_TRUTH.md`
 - `methods/index.md`
+- `methods/registry.json`
+- `layer2/rounds/`
 - `tasks/layer2/`
 - `tasks/layer3/`
 - `checker/waiting/`
@@ -298,12 +359,17 @@ You are working only on puzzle `{brief["puzzle_id"]}`.
 
 Rules:
 - Read `source/puzzle_brief.json` and `CURRENT_TRUTH.md` first.
+- Layer 2 lanes are: `{", ".join(L2_MODEL_LANES)}`.
+- Layer 3 model lanes are: `{", ".join(L3_MODEL_LANES)}`.
 - Do not store, print, or log seeds, private keys, API keys, Discord tokens, or PEM contents.
 - If a hit is found, stop and ask Can. Do not post the secret.
 - Do not flood checker jobs. Every checker request needs method id, variant id, evidence reason, and failure scope.
 - If checker ETA is over 16 hours, ask Can before submitting or continuing.
 - Before waiting for checker output, write a durable wait-state file under `checker/waiting/`.
 - Layer 2 decides method promotion/death. Layer 3 executes scoped tasks and writes handoffs.
+- After 3 consecutive no-hit checker outcomes, Layer 2 must create a new round before more Layer 3 work.
+- Each Layer 2 round must contain at least 10 proposals from each Layer 2 model and at least 5 selected methods to verify.
+- Every Layer 3 task must prove novelty with `novelty_summary`, `similar_prior_methods`, and `why_this_is_not_a_repeat`.
 - Internet use is read-only unless Can explicitly allows otherwise.
 """
 
@@ -430,6 +496,253 @@ def require_workspace(args: argparse.Namespace) -> Path:
     return ws
 
 
+def load_method_registry(ws: Path) -> dict[str, Any]:
+    path = ws / "methods" / "registry.json"
+    if not path.exists():
+        return {"version": 1, "methods": {}, "signatures": {}}
+    data = read_json(path)
+    data.setdefault("version", 1)
+    data.setdefault("methods", {})
+    data.setdefault("signatures", {})
+    return data
+
+
+def save_method_registry(ws: Path, registry: dict[str, Any]) -> None:
+    write_json(ws / "methods" / "registry.json", registry)
+
+
+def normalized_method_text(*values: str) -> str:
+    words = re.findall(r"[a-z0-9]{3,}", " ".join(value or "" for value in values).lower())
+    return " ".join(words)
+
+
+def method_signature(method_family: str, direction: str, objective: str) -> str:
+    normalized = normalized_method_text(method_family, direction, objective)
+    if not normalized:
+        raise SystemExit("method text cannot be empty")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+
+
+def require_text_field(name: str, value: str | None) -> str:
+    if not value or not value.strip():
+        raise SystemExit(f"--{name.replace('_', '-')} is required")
+    return value.strip()
+
+
+def validate_round_method(ws: Path, round_id: str | None, method_id: str) -> None:
+    if not round_id:
+        return
+    path = ws / "layer2" / "rounds" / f"{round_id}.json"
+    if not path.is_file():
+        raise SystemExit(f"Layer 2 round not found: {path}")
+    data = read_json(path)
+    selected = {str(item) for item in data.get("selected_methods", [])}
+    if method_id not in selected:
+        raise SystemExit(f"method `{method_id}` is not selected in Layer 2 round `{round_id}`")
+
+
+def register_method_attempt(
+    ws: Path,
+    *,
+    method_id: str,
+    variant_id: str,
+    task_id: str,
+    layer2_task_id: str,
+    round_id: str | None,
+    model_lane: str,
+    method_family: str,
+    direction: str,
+    objective: str,
+    novelty_summary: str,
+    similar_prior_methods: list[str],
+    why_this_is_not_a_repeat: str,
+    failure_scope_if_no_hit: str,
+    reopen_condition: str,
+    allow_related_repeat: bool,
+) -> str:
+    registry = load_method_registry(ws)
+    signature = method_signature(method_family, direction, objective)
+    existing = registry["signatures"].get(signature)
+    if existing and not allow_related_repeat:
+        raise SystemExit(
+            "method appears to repeat an existing task: "
+            f"{existing.get('method_id')} / {existing.get('variant_id')} "
+            "(pass --allow-related-repeat only when Layer 2 explicitly reopens it)"
+        )
+
+    method = registry["methods"].setdefault(
+        method_id,
+        {
+            "method_id": method_id,
+            "created_at": utcnow(),
+            "status": "active",
+            "variants": {},
+        },
+    )
+    variants = method.setdefault("variants", {})
+    if variant_id in variants and not allow_related_repeat:
+        raise SystemExit(f"variant `{variant_id}` already exists for method `{method_id}`")
+    variants[variant_id] = {
+        "task_id": task_id,
+        "layer2_task_id": layer2_task_id,
+        "round_id": round_id,
+        "model_lane": model_lane,
+        "method_family": method_family,
+        "direction": direction,
+        "objective": objective,
+        "novelty_summary": novelty_summary,
+        "similar_prior_methods": similar_prior_methods,
+        "why_this_is_not_a_repeat": why_this_is_not_a_repeat,
+        "failure_scope_if_no_hit": failure_scope_if_no_hit,
+        "reopen_condition": reopen_condition,
+        "signature": signature,
+        "created_at": utcnow(),
+        "status": "queued",
+    }
+    registry["signatures"][signature] = {
+        "method_id": method_id,
+        "variant_id": variant_id,
+        "task_id": task_id,
+        "round_id": round_id,
+        "created_at": utcnow(),
+    }
+    save_method_registry(ws, registry)
+    return signature
+
+
+def validate_l2_round_packet(data: dict[str, Any], *, trigger: str, no_hit_streak: int) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    proposals_raw = data.get("model_proposals")
+    if not isinstance(proposals_raw, dict):
+        raise SystemExit("Layer 2 round proposal file must contain object field `model_proposals`")
+
+    normalized_proposals: dict[str, list[dict[str, Any]]] = {}
+    strict_no_hit_round = trigger == "no-hit" or no_hit_streak >= NO_HIT_NEW_ROUND_THRESHOLD
+    for lane in L2_MODEL_LANES:
+        proposals = proposals_raw.get(lane)
+        if proposals is None:
+            proposals = proposals_raw.get(lane.replace(".", "-"))
+        if not isinstance(proposals, list):
+            raise SystemExit(f"model_proposals.{lane} must be a list")
+        if strict_no_hit_round and len(proposals) < MIN_PROPOSALS_PER_L2_MODEL:
+            raise SystemExit(
+                f"{lane} must propose at least {MIN_PROPOSALS_PER_L2_MODEL} methods "
+                f"after {NO_HIT_NEW_ROUND_THRESHOLD} no-hit outcomes"
+            )
+        for index, proposal in enumerate(proposals, start=1):
+            if not isinstance(proposal, dict):
+                raise SystemExit(f"{lane} proposal #{index} must be an object")
+            for field in (
+                "method_id",
+                "title",
+                "summary",
+                "novelty_summary",
+                "why_this_is_not_a_repeat",
+                "failure_scope_if_no_hit",
+                "testable_output",
+            ):
+                if not proposal.get(field):
+                    raise SystemExit(f"{lane} proposal #{index} missing `{field}`")
+        normalized_proposals[lane] = proposals
+
+    selected = data.get("selected_methods") or []
+    if not isinstance(selected, list):
+        raise SystemExit("selected_methods must be a list")
+    selected = [str(item) for item in selected if str(item).strip()]
+    if len(selected) < MIN_SELECTED_METHODS_PER_ROUND:
+        raise SystemExit(f"Layer 2 round must select at least {MIN_SELECTED_METHODS_PER_ROUND} methods")
+
+    proposal_ids = {
+        str(proposal["method_id"])
+        for proposals in normalized_proposals.values()
+        for proposal in proposals
+    }
+    missing = [method_id for method_id in selected if method_id not in proposal_ids]
+    if missing:
+        raise SystemExit(f"selected methods not present in model proposals: {', '.join(missing)}")
+    return normalized_proposals, selected
+
+
+def command_l2_round(args: argparse.Namespace) -> int:
+    ws = require_workspace(args)
+    proposal_path = Path(args.proposal_file).expanduser().resolve()
+    if not proposal_path.is_file():
+        raise SystemExit(f"proposal file not found: {proposal_path}")
+    data = read_json(proposal_path)
+    round_id = args.round_id or data.get("round_id") or next_id("L2ROUND")
+    trigger = args.trigger or data.get("trigger") or "manual"
+    no_hit_streak = args.no_hit_streak
+    if no_hit_streak is None:
+        no_hit_streak = int(read_status(ws).get("consecutive_no_hit_checks") or 0)
+    proposals, selected = validate_l2_round_packet(data, trigger=trigger, no_hit_streak=no_hit_streak)
+    packet = {
+        "round_id": round_id,
+        "puzzle_id": slugify(args.puzzle_id),
+        "created_at": utcnow(),
+        "created_by": args.created_by,
+        "trigger": trigger,
+        "no_hit_streak_at_start": no_hit_streak,
+        "model_lanes": list(L2_MODEL_LANES),
+        "min_proposals_per_layer2_model": MIN_PROPOSALS_PER_L2_MODEL,
+        "min_selected_methods": MIN_SELECTED_METHODS_PER_ROUND,
+        "model_proposals": proposals,
+        "selected_methods": selected,
+        "council_summary": data.get("council_summary") or "",
+        "next_verification_plan": data.get("next_verification_plan") or "",
+        "source_proposal_file": str(proposal_path),
+    }
+    write_json(ws / "layer2" / "rounds" / f"{round_id}.json", packet, overwrite=False)
+    event(
+        ws,
+        "layer2_round_created",
+        round_id=round_id,
+        trigger=trigger,
+        selected_method_count=len(selected),
+    )
+    update_status(
+        ws,
+        last_layer2_round=round_id,
+        layer2_new_round_required=False,
+        consecutive_no_hit_checks=0,
+    )
+    print(json.dumps(packet, indent=2, sort_keys=True))
+    return 0
+
+
+def command_l2_round_template(args: argparse.Namespace) -> int:
+    ws = require_workspace(args)
+    round_id = args.round_id or next_id("L2ROUND")
+    data: dict[str, Any] = {
+        "round_id": round_id,
+        "trigger": args.trigger,
+        "council_summary": "",
+        "next_verification_plan": "",
+        "model_proposals": {},
+        "selected_methods": [],
+    }
+    for lane in L2_MODEL_LANES:
+        proposals = []
+        for index in range(1, MIN_PROPOSALS_PER_L2_MODEL + 1):
+            method_id = f"{lane}-method-{index:02d}"
+            proposals.append(
+                {
+                    "method_id": method_id,
+                    "title": "",
+                    "summary": "",
+                    "novelty_summary": "",
+                    "why_this_is_not_a_repeat": "",
+                    "failure_scope_if_no_hit": "",
+                    "testable_output": "",
+                }
+            )
+            if len(data["selected_methods"]) < MIN_SELECTED_METHODS_PER_ROUND:
+                data["selected_methods"].append(method_id)
+        data["model_proposals"][lane] = proposals
+    output = Path(args.output).expanduser() if args.output else ws / "layer2" / "rounds" / f"{round_id}.proposal.json"
+    write_json(output, data, overwrite=False)
+    print(str(output))
+    return 0
+
+
 def command_l2_task(args: argparse.Namespace) -> int:
     ws = require_workspace(args)
     task_id = args.task_id or next_id("L2")
@@ -457,21 +770,62 @@ def command_l2_task(args: argparse.Namespace) -> int:
 
 def command_l3_task(args: argparse.Namespace) -> int:
     ws = require_workspace(args)
+    status = read_status(ws)
+    if status.get("layer2_new_round_required") and not args.round_id:
+        raise SystemExit(
+            "Layer 2 new-round gate is active after consecutive no-hit outcomes; "
+            "create a validated l2-round and pass --round-id before spawning Layer 3"
+        )
     task_id = args.task_id or next_id("L3")
     method_id = args.method_id or f"METHOD-{slugify(args.method_family or args.direction)[:40]}"
     variant_id = args.variant_id or f"{method_id}-V001"
+    model_lane = canonical_model_lane(args.model_lane)
+    novelty_summary = require_text_field("novelty_summary", args.novelty_summary)
+    why_this_is_not_a_repeat = require_text_field("why_this_is_not_a_repeat", args.why_this_is_not_a_repeat)
+    failure_scope_if_no_hit = require_text_field("failure_scope_if_no_hit", args.failure_scope_if_no_hit)
+    reopen_condition = require_text_field("reopen_condition", args.reopen_condition)
+    similar_prior_methods = args.similar_prior_method or []
+    validate_round_method(ws, args.round_id, method_id)
+    signature = register_method_attempt(
+        ws,
+        method_id=method_id,
+        variant_id=variant_id,
+        task_id=task_id,
+        layer2_task_id=args.layer2_task_id,
+        round_id=args.round_id,
+        model_lane=model_lane,
+        method_family=args.method_family,
+        direction=args.direction,
+        objective=args.objective,
+        novelty_summary=novelty_summary,
+        similar_prior_methods=similar_prior_methods,
+        why_this_is_not_a_repeat=why_this_is_not_a_repeat,
+        failure_scope_if_no_hit=failure_scope_if_no_hit,
+        reopen_condition=reopen_condition,
+        allow_related_repeat=bool(args.allow_related_repeat),
+    )
     packet = {
         "task_id": task_id,
         "puzzle_id": slugify(args.puzzle_id),
         "layer2_task_id": args.layer2_task_id,
+        "round_id": args.round_id,
         "created_at": utcnow(),
         "status": "queued",
-        "model_lane": args.model_lane,
+        "model_lane": model_lane,
         "method_id": method_id,
         "variant_id": variant_id,
+        "method_signature": signature,
         "direction": args.direction,
         "objective": args.objective,
         "inputs": args.input or [],
+        "anti_loop": {
+            "novelty_summary": novelty_summary,
+            "similar_prior_methods": similar_prior_methods,
+            "why_this_is_not_a_repeat": why_this_is_not_a_repeat,
+            "failure_scope_if_no_hit": failure_scope_if_no_hit,
+            "reopen_condition": reopen_condition,
+            "allow_related_repeat": bool(args.allow_related_repeat),
+        },
         "required_outputs": [
             "method note update",
             "candidate manifest if candidates are produced",
@@ -712,9 +1066,10 @@ def command_checker_poll(args: argparse.Namespace) -> int:
     done_path = ws / "checker" / "waiting" / "done" / wait_path.name
     done_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(wait_path), str(done_path))
+    outcome_update = record_checker_outcome(ws, state, result)
     event(ws, "checker_result_recorded", checker_job_id=state["checker_job_id"], status=status, result_status=result.get("result_status"))
     waiting_count = len(list((ws / "checker" / "waiting").glob("*.json")))
-    update_status(ws, last_checker_result=state["checker_job_id"], waiting_checker_jobs=waiting_count)
+    update_status(ws, last_checker_result=state["checker_job_id"], waiting_checker_jobs=waiting_count, **outcome_update)
     print(json.dumps({"result": result, "handoff": str(handoff), "result_path": str(result_path)}, indent=2, sort_keys=True))
     return 0
 
@@ -753,6 +1108,82 @@ def write_checker_handoff(ws: Path, state: dict[str, Any], result: dict[str, Any
 """
     write_text(path, content)
     return path
+
+
+def checker_outcome_kind(result: dict[str, Any]) -> str:
+    status = str(result.get("status") or "").lower()
+    result_status = str(result.get("result_status") or "").lower()
+    if result_status in {"hit", "found", "success"}:
+        return "hit"
+    if result_status == "duplicate":
+        return "duplicate"
+    if status in {"failed", "canceled", "error"}:
+        return "error"
+    if result_status in {"no_hit", "no-hit", "not_found", "not-found", "miss", "none"}:
+        return "no_hit"
+    if status == "completed":
+        return "no_hit"
+    return "pending"
+
+
+def mark_registry_variant(ws: Path, method_id: str, variant_id: str, status: str) -> None:
+    registry = load_method_registry(ws)
+    method = registry.get("methods", {}).get(method_id)
+    if not method:
+        return
+    variant = method.get("variants", {}).get(variant_id)
+    if not variant:
+        return
+    variant["status"] = status
+    variant["updated_at"] = utcnow()
+    if status in {"no_hit", "hit", "error", "duplicate"}:
+        method["last_outcome"] = status
+        method["updated_at"] = utcnow()
+    save_method_registry(ws, registry)
+
+
+def record_checker_outcome(ws: Path, state: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    kind = checker_outcome_kind(result)
+    mark_registry_variant(ws, state["method_id"], state["variant_id"], kind)
+    current = read_status(ws)
+    if kind == "hit":
+        return {
+            "last_checker_outcome": kind,
+            "hit_found": True,
+            "layer2_new_round_required": False,
+            "consecutive_no_hit_checks": 0,
+        }
+    if kind == "no_hit":
+        next_count = int(current.get("consecutive_no_hit_checks") or 0) + 1
+        new_round_required = next_count >= NO_HIT_NEW_ROUND_THRESHOLD
+        append_jsonl(
+            ws / "negative-results" / "negative_results.jsonl",
+            {
+                "negative_id": f"N-{state['checker_job_id']}",
+                "hypothesis": state["method_id"],
+                "variant_id": state["variant_id"],
+                "scope": state["failure_scope_if_no_hit"],
+                "result": "checker_no_hit",
+                "reopen_condition": "Layer 2 may reopen only with new evidence or a narrowed variant.",
+                "created_at": utcnow(),
+            },
+        )
+        if new_round_required:
+            event(
+                ws,
+                "layer2_new_round_required",
+                consecutive_no_hit_checks=next_count,
+                threshold=NO_HIT_NEW_ROUND_THRESHOLD,
+            )
+        return {
+            "last_checker_outcome": kind,
+            "consecutive_no_hit_checks": next_count,
+            "layer2_new_round_required": new_round_required,
+        }
+    return {
+        "last_checker_outcome": kind,
+        "consecutive_no_hit_checks": int(current.get("consecutive_no_hit_checks") or 0),
+    }
 
 
 def command_status(args: argparse.Namespace) -> int:
@@ -834,16 +1265,39 @@ def build_parser() -> argparse.ArgumentParser:
     l2.add_argument("--layer3-expected")
     l2.set_defaults(func=command_l2_task)
 
+    l2_round = sub.add_parser("l2-round", help="Validate and record a Layer 2 council round")
+    add_common(l2_round)
+    l2_round.add_argument("--round-id")
+    l2_round.add_argument("--proposal-file", required=True)
+    l2_round.add_argument("--created-by", default="layer2-council")
+    l2_round.add_argument("--trigger", choices=["manual", "scheduled", "no-hit", "new-eyes"], default="manual")
+    l2_round.add_argument("--no-hit-streak", type=int)
+    l2_round.set_defaults(func=command_l2_round)
+
+    l2_round_template = sub.add_parser("l2-round-template", help="Create a Layer 2 round proposal skeleton")
+    add_common(l2_round_template)
+    l2_round_template.add_argument("--round-id")
+    l2_round_template.add_argument("--trigger", choices=["manual", "scheduled", "no-hit", "new-eyes"], default="manual")
+    l2_round_template.add_argument("--output")
+    l2_round_template.set_defaults(func=command_l2_round_template)
+
     l3 = sub.add_parser("l3-task", help="Create a Layer 3 worker packet")
     add_common(l3)
     l3.add_argument("--task-id")
     l3.add_argument("--layer2-task-id", required=True)
+    l3.add_argument("--round-id")
     l3.add_argument("--model-lane", required=True)
     l3.add_argument("--method-id")
     l3.add_argument("--variant-id")
     l3.add_argument("--method-family", default="")
     l3.add_argument("--direction", required=True)
     l3.add_argument("--objective", required=True)
+    l3.add_argument("--novelty-summary", required=True)
+    l3.add_argument("--similar-prior-method", action="append")
+    l3.add_argument("--why-this-is-not-a-repeat", required=True)
+    l3.add_argument("--failure-scope-if-no-hit", required=True)
+    l3.add_argument("--reopen-condition", required=True)
+    l3.add_argument("--allow-related-repeat", action="store_true")
     l3.add_argument("--input", action="append")
     l3.add_argument("--stop-condition", action="append")
     l3.add_argument("--checker-allowed", action="store_true")
