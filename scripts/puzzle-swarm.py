@@ -32,7 +32,7 @@ DEFAULT_MODEL_BY_LANE = {
     "deepseek-v4-pro": "deepseek-v4-pro",
     "qwen3.7-max": "qwen3.7-max",
     "qwen3.6": "qwen3.6",
-    "qwen-vl": "qwen-vl-max",
+    "qwen-vl": "qwen3-vl-plus",
 }
 MIN_PROPOSALS_PER_L2_MODEL = 10
 MIN_SELECTED_METHODS_PER_ROUND = 5
