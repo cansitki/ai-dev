@@ -23,6 +23,11 @@ log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*" | tee -a "$LOG_FILE"
 }
 
+release_lock() {
+  flock -u 9 2>/dev/null || true
+  exec 9>&- 2>/dev/null || true
+}
+
 json_string() {
   printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
 }
@@ -81,12 +86,14 @@ run_backup() {
   exec 9>"$LOCK_FILE"
   if ! flock -n 9; then
     log "another vault backup is already running"
+    exec 9>&- 2>/dev/null || true
     return 0
   fi
 
   if [ ! -d "$VAULT_DIR/.git" ]; then
     log "vault repo missing: $VAULT_DIR"
     write_status "error" "vault repo missing"
+    release_lock
     return 1
   fi
 
@@ -98,6 +105,7 @@ run_backup() {
   if ! git pull --rebase --autostash "$REMOTE" "$BRANCH" --quiet; then
     log "git pull failed; leaving workspace untouched"
     write_status "error" "git pull failed"
+    release_lock
     return 1
   fi
 
@@ -112,6 +120,7 @@ run_backup() {
       log "no vault changes to back up"
       write_status "success" "no changes" "$(next_run_iso)"
     fi
+    release_lock
     return 0
   fi
 
@@ -121,6 +130,7 @@ run_backup() {
   git push "$REMOTE" "$BRANCH" --quiet
   log "committed and pushed vault backup: $stamp"
   write_status "success" "committed and pushed vault backup" "$(next_run_iso)"
+  release_lock
 }
 
 case "${1:-loop}" in

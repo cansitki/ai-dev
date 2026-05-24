@@ -32,6 +32,8 @@ cat > "$EXCLUDE_FILE" <<'EOF'
 /.bun/install/cache/**
 /.cargo/registry/**
 /.rustup/**
+/Can/workspace-raw/**
+/.obsidian-cli.sock
 **/node_modules/**
 **/.venv/**
 **/venv/**
@@ -49,6 +51,11 @@ EOF
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*" | tee -a "$LOG_FILE"
+}
+
+release_lock() {
+  flock -u 9 2>/dev/null || true
+  exec 9>&- 2>/dev/null || true
 }
 
 json_string() {
@@ -110,18 +117,21 @@ run_backup() {
   exec 9>"$LOCK_FILE"
   if ! flock -n 9; then
     log "another raw R2 backup is already running"
+    exec 9>&- 2>/dev/null || true
     return 0
   fi
 
   if ! command -v rclone >/dev/null 2>&1; then
     log "rclone is not installed"
     write_status "error" "rclone is not installed"
+    release_lock
     return 1
   fi
 
   if ! rclone listremotes | grep -qx "${RCLONE_REMOTE}:"; then
     log "rclone remote missing: $RCLONE_REMOTE"
     write_status "error" "rclone remote missing"
+    release_lock
     return 1
   fi
 
@@ -154,11 +164,13 @@ run_backup() {
   if [ "$rc" -ne 0 ]; then
     log "raw R2 backup failed with exit code $rc"
     write_status "error" "raw R2 backup failed" "$(next_run_iso)"
+    release_lock
     return "$rc"
   fi
 
   log "raw R2 backup completed; started $started"
   write_status "success" "raw R2 backup completed" "$(next_run_iso)" "$(printf '%s\n' "$output" | tail -20)"
+  release_lock
 }
 
 case "${1:-loop}" in
