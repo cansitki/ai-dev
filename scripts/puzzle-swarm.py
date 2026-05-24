@@ -26,7 +26,14 @@ DEFAULT_ROOT = Path(os.environ.get("PUZZLE_SWARM_ROOT", "~/puzzles")).expanduser
 DEFAULT_SEEDCHECKER = Path(os.environ.get("SEEDCHECKER_HOME", "~/projects/seed-checker")).expanduser()
 MAX_AUTO_CHECKER_ETA_SEC = 16 * 60 * 60
 L2_MODEL_LANES = ("deepseek-v4-pro", "qwen3.7-max", "qwen3.6")
-L3_MODEL_LANES = L2_MODEL_LANES
+L3_MODEL_LANES = L2_MODEL_LANES + ("qwen-vl",)
+VISION_MODEL_LANES = ("qwen-vl",)
+DEFAULT_MODEL_BY_LANE = {
+    "deepseek-v4-pro": "deepseek-v4-pro",
+    "qwen3.7-max": "qwen3.7-max",
+    "qwen3.6": "qwen3.6",
+    "qwen-vl": "qwen-vl-max",
+}
 MIN_PROPOSALS_PER_L2_MODEL = 10
 MIN_SELECTED_METHODS_PER_ROUND = 5
 NO_HIT_NEW_ROUND_THRESHOLD = 3
@@ -82,6 +89,16 @@ MODEL_LANE_ALIASES = {
     "qwen3.6-plus": "qwen3.6",
     "qwen-3.6-pro": "qwen3.6",
     "qwen-3.6-plus": "qwen3.6",
+    "qwen-vl": "qwen-vl",
+    "qwenvl": "qwen-vl",
+    "qwen-vision": "qwen-vl",
+    "qwenvision": "qwen-vl",
+    "qwen-vl-max": "qwen-vl",
+    "qwen-vl-max-latest": "qwen-vl",
+    "qwen2.5-vl": "qwen-vl",
+    "qwen25vl": "qwen-vl",
+    "qwen3-vl": "qwen-vl",
+    "qwen3vl": "qwen-vl",
 }
 
 
@@ -269,6 +286,7 @@ def command_init(args: argparse.Namespace) -> int:
             "layer1": ["master-codex", "can"],
             "layer2": list(L2_MODEL_LANES),
             "layer3": list(L3_MODEL_LANES),
+            "vision": list(VISION_MODEL_LANES),
         },
         "round_policy": {
             "no_hit_new_round_threshold": NO_HIT_NEW_ROUND_THRESHOLD,
@@ -361,6 +379,7 @@ Rules:
 - Read `source/puzzle_brief.json` and `CURRENT_TRUTH.md` first.
 - Layer 2 lanes are: `{", ".join(L2_MODEL_LANES)}`.
 - Layer 3 model lanes are: `{", ".join(L3_MODEL_LANES)}`.
+- Use `qwen-vl` Layer 3 workers for image, OCR, visual geometry, screenshot, stego pre-analysis, and multimodal extraction tasks.
 - Do not store, print, or log seeds, private keys, API keys, Discord tokens, or PEM contents.
 - If a hit is found, stop and ask Can. Do not post the secret.
 - Do not flood checker jobs. Every checker request needs method id, variant id, evidence reason, and failure scope.
@@ -785,6 +804,16 @@ def command_l3_task(args: argparse.Namespace) -> int:
     failure_scope_if_no_hit = require_text_field("failure_scope_if_no_hit", args.failure_scope_if_no_hit)
     reopen_condition = require_text_field("reopen_condition", args.reopen_condition)
     similar_prior_methods = args.similar_prior_method or []
+    task_modality = args.task_modality
+    image_inputs = args.image_input or []
+    if task_modality in {"image", "vision", "multimodal"} and model_lane not in VISION_MODEL_LANES:
+        raise SystemExit(f"{task_modality} tasks must use a vision lane: {', '.join(VISION_MODEL_LANES)}")
+    if model_lane in VISION_MODEL_LANES and task_modality == "text":
+        task_modality = "vision"
+    actual_model = args.actual_model or DEFAULT_MODEL_BY_LANE[model_lane]
+    for image_input in image_inputs:
+        if not Path(image_input).expanduser().exists():
+            raise SystemExit(f"image input not found: {image_input}")
     validate_round_method(ws, args.round_id, method_id)
     signature = register_method_attempt(
         ws,
@@ -812,12 +841,15 @@ def command_l3_task(args: argparse.Namespace) -> int:
         "created_at": utcnow(),
         "status": "queued",
         "model_lane": model_lane,
+        "actual_model": actual_model,
         "method_id": method_id,
         "variant_id": variant_id,
         "method_signature": signature,
+        "task_modality": task_modality,
         "direction": args.direction,
         "objective": args.objective,
         "inputs": args.input or [],
+        "image_inputs": image_inputs,
         "anti_loop": {
             "novelty_summary": novelty_summary,
             "similar_prior_methods": similar_prior_methods,
@@ -1287,11 +1319,14 @@ def build_parser() -> argparse.ArgumentParser:
     l3.add_argument("--layer2-task-id", required=True)
     l3.add_argument("--round-id")
     l3.add_argument("--model-lane", required=True)
+    l3.add_argument("--actual-model")
     l3.add_argument("--method-id")
     l3.add_argument("--variant-id")
     l3.add_argument("--method-family", default="")
     l3.add_argument("--direction", required=True)
     l3.add_argument("--objective", required=True)
+    l3.add_argument("--task-modality", choices=["text", "image", "vision", "multimodal"], default="text")
+    l3.add_argument("--image-input", action="append")
     l3.add_argument("--novelty-summary", required=True)
     l3.add_argument("--similar-prior-method", action="append")
     l3.add_argument("--why-this-is-not-a-repeat", required=True)
