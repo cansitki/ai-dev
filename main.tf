@@ -298,7 +298,26 @@ PY
 ${file("${path.module}/scripts/puzzle-swarm.py")}
 PY
     chmod +x "$HOME/.local/bin/puzzle-swarm"
-    echo "Installed codex-usage-guard and puzzle-swarm"
+    mkdir -p "$HOME/bin" "$HOME/.ssh" "$HOME/.config/puzzle-swarm"
+    chmod 700 "$HOME/.ssh"
+    cat > "$HOME/bin/seedchecker-mcp" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+KEY="$${SEEDCHECKER_SSH_KEY:-$HOME/.ssh/can-new.pem}"
+TARGET="$${SEEDCHECKER_CPU_SSH_TARGET:-ubuntu@ec2-3-71-229-195.eu-central-1.compute.amazonaws.com}"
+exec ssh \
+  -i "$KEY" \
+  -o StrictHostKeyChecking=accept-new \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=6 \
+  "$TARGET" \
+  'cd /home/ubuntu/seed-checker && exec venv/bin/python scripts/seedchecker_mcp_stdio.py --allowed-roots "/home/ubuntu/seedchecker-mcp-inputs,/home/ubuntu/100sats-seedlists,/home/ubuntu/seed-checker/outputs,/tmp"'
+SH
+    chmod +x "$HOME/bin/seedchecker-mcp"
+    cat > "$HOME/.config/puzzle-swarm/mcp.json" <<'JSON'
+{"mcpServers":{"seedchecker":{"command":"/home/coder/bin/seedchecker-mcp","args":[]}}}
+JSON
+    echo "Installed codex-usage-guard, puzzle-swarm, and seedchecker MCP launcher"
   EOT
 }
 

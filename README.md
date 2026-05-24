@@ -204,7 +204,7 @@ puzzle-swarm l2-task --puzzle-id level5 --direction "Geometry clue audit" --ques
 puzzle-swarm status --puzzle-id level5
 ```
 
-Workers must write durable files before waiting. Use `puzzle-swarm checker-submit` for checker MCP/scheduler jobs so the required wait-state is created before the worker sleeps.
+Workers must write durable files before waiting. Use `puzzle-swarm checker-submit` for seedchecker MCP jobs so the required wait-state is created before the worker sleeps. Candidate files are uploaded to the CPU VM and submitted through `~/bin/seedchecker-mcp`; do not run a separate scheduler in each puzzle workspace.
 
 ### Obsidian CLI cannot find Obsidian
 The Coder script `scripts/obsidian-serve.sh` must start the Desktop app with `/opt/Obsidian/obsidian`, not `obsidian`, because `~/.local/bin/obsidian` is the CLI helper. The script runs a Desktop watchdog in tmux session `obsidian-headless`, opens the workspace vault at `~/Can`, restarts Desktop if it exits, and keeps `~/vault` as a compatibility symlink.

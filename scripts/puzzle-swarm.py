@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,16 @@ from typing import Any
 
 DEFAULT_ROOT = Path(os.environ.get("PUZZLE_SWARM_ROOT", "~/puzzles")).expanduser()
 DEFAULT_SEEDCHECKER = Path(os.environ.get("SEEDCHECKER_HOME", "~/projects/seed-checker")).expanduser()
+DEFAULT_SEEDCHECKER_MCP_COMMAND = os.environ.get("SEEDCHECKER_MCP_COMMAND", "~/bin/seedchecker-mcp")
+DEFAULT_SEEDCHECKER_CPU_SSH_TARGET = os.environ.get(
+    "SEEDCHECKER_CPU_SSH_TARGET",
+    "ubuntu@ec2-3-71-229-195.eu-central-1.compute.amazonaws.com",
+)
+DEFAULT_SEEDCHECKER_SSH_KEY = Path(os.environ.get("SEEDCHECKER_SSH_KEY", "~/.ssh/can-new.pem")).expanduser()
+DEFAULT_SEEDCHECKER_REMOTE_ROOT = os.environ.get(
+    "SEEDCHECKER_REMOTE_ROOT",
+    "/home/ubuntu/seedchecker-mcp-inputs",
+)
 MAX_AUTO_CHECKER_ETA_SEC = 16 * 60 * 60
 L2_MODEL_LANES = ("deepseek-v4-pro", "qwen3.7-max", "qwen3.6")
 L3_MODEL_LANES = L2_MODEL_LANES + ("qwen-vl",)
@@ -72,6 +83,7 @@ SECRET_FIELD_NAMES = {
     "password",
     "token",
     "api_key",
+    "api-key",
 }
 MODEL_LANE_ALIASES = {
     "deepseek-v4-pro": "deepseek-v4-pro",
@@ -298,6 +310,7 @@ def command_init(args: argparse.Namespace) -> int:
     write_text(ws / "CURRENT_TRUTH.md", current_truth_template(brief), overwrite=not args.no_overwrite)
     write_text(ws / "README.md", readme_template(brief), overwrite=not args.no_overwrite)
     write_text(ws / "AGENTS.md", agents_template(brief), overwrite=not args.no_overwrite)
+    write_text(ws / "checker" / "README.md", checker_readme_template(), overwrite=False)
     write_text(ws / "methods" / "index.md", "# Methods Index\n\nNo methods recorded yet.\n", overwrite=False)
     write_json(
         ws / "methods" / "registry.json",
@@ -364,9 +377,13 @@ Start here:
 - `tasks/layer2/`
 - `tasks/layer3/`
 - `checker/waiting/`
+- `checker/README.md`
 
 All agent reasoning that matters must be written to files before waiting,
 sleeping, or handing off to another agent.
+
+Checker jobs use the shared seedchecker MCP through `~/bin/seedchecker-mcp`.
+Do not run a local scheduler in this workspace.
 """
 
 
@@ -385,11 +402,31 @@ Rules:
 - Do not flood checker jobs. Every checker request needs method id, variant id, evidence reason, and failure scope.
 - If checker ETA is over 16 hours, ask Can before submitting or continuing.
 - Before waiting for checker output, write a durable wait-state file under `checker/waiting/`.
+- Use the shared seedchecker MCP only. `puzzle-swarm checker-submit` uploads candidate files to the CPU VM, estimates first, submits only if allowed, and records the wait-state.
+- The seedchecker SSH key lives at `~/.ssh/can-new.pem` with mode `600`; never print, paste, or commit PEM contents.
 - Layer 2 decides method promotion/death. Layer 3 executes scoped tasks and writes handoffs.
 - After 3 consecutive no-hit checker outcomes, Layer 2 must create a new round before more Layer 3 work.
 - Each Layer 2 round must contain at least 10 proposals from each Layer 2 model and at least 5 selected methods to verify.
 - Every Layer 3 task must prove novelty with `novelty_summary`, `similar_prior_methods`, and `why_this_is_not_a_repeat`.
 - Internet use is read-only unless Can explicitly allows otherwise.
+"""
+
+
+def checker_readme_template() -> str:
+    return """# Checker MCP
+
+This workspace uses the central production seedchecker MCP. Do not run a local scheduler here.
+
+Flow:
+
+1. Create a candidate file locally under `candidates/` or `artifacts/candidates/`.
+2. Create a manifest with `puzzle-swarm manifest`.
+3. Submit with `puzzle-swarm checker-submit`.
+4. The CLI uploads the candidate file to the CPU VM under `/home/ubuntu/seedchecker-mcp-inputs/...`.
+5. The CLI calls `~/bin/seedchecker-mcp`, estimates first, blocks ETA over 16h unless approved, submits, and writes `checker/waiting/<job_id>.json`.
+6. Poll with `puzzle-swarm checker-poll --checker-job-id <job_id>`.
+
+Never inline seed phrases, WIFs, private keys, tokens, or PEM contents in JSON, Discord, logs, or reports.
 """
 
 
@@ -957,7 +994,185 @@ def run_json(cmd: list[str]) -> dict[str, Any]:
     return data
 
 
-def checker_request_from_manifest(ws: Path, args: argparse.Namespace, manifest: dict[str, Any]) -> dict[str, Any]:
+def mcp_command_args(command: str) -> list[str]:
+    expanded = os.path.expandvars(os.path.expanduser(command.strip()))
+    if not expanded:
+        raise SystemExit("seedchecker MCP command cannot be empty")
+    return shlex.split(expanded)
+
+
+def mcp_tool_call(args: argparse.Namespace, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    reject_inline_secrets(arguments)
+    messages = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "puzzle-swarm", "version": "1"},
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+            "params": {},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        },
+    ]
+    stdin = "".join(json.dumps(message, separators=(",", ":")) + "\n" for message in messages)
+    proc = subprocess.run(
+        mcp_command_args(args.seedchecker_mcp_command),
+        input=stdin,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or f"MCP tool failed: {tool_name}")
+    response: dict[str, Any] | None = None
+    for raw_line in proc.stdout.splitlines():
+        if not raw_line.strip():
+            continue
+        try:
+            message = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if message.get("id") == 2:
+            response = message
+            break
+    if response is None:
+        raise SystemExit(f"MCP tool `{tool_name}` returned no response")
+    if response.get("error"):
+        error = response["error"]
+        raise SystemExit(str(error.get("message") or error))
+    result = response.get("result") or {}
+    if result.get("isError"):
+        raise SystemExit(f"MCP tool `{tool_name}` returned an error")
+    content = result.get("content") or []
+    if not content:
+        raise SystemExit(f"MCP tool `{tool_name}` returned no content")
+    text = str(content[0].get("text") or "")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"MCP tool `{tool_name}` did not return JSON: {text}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"MCP tool `{tool_name}` returned non-object JSON")
+    return payload
+
+
+def seedchecker_eta_seconds(payload: dict[str, Any]) -> int:
+    for key in ("estimated_finish_in_sec", "estimated_runtime_sec", "wake_after_sec"):
+        value = payload.get(key)
+        if value is not None:
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                continue
+    return 0
+
+
+def safe_remote_component(value: str) -> str:
+    out = []
+    for char in str(value).strip():
+        if char.isalnum() or char in {"-", "_", "."}:
+            out.append(char)
+        else:
+            out.append("-")
+    safe = "".join(out).strip("-_.")
+    while "--" in safe:
+        safe = safe.replace("--", "-")
+    if not safe:
+        raise SystemExit("remote path component cannot be empty")
+    return safe[:160]
+
+
+def seedchecker_workspace_name(args: argparse.Namespace) -> str:
+    return safe_remote_component(
+        args.seedchecker_workspace_name
+        or os.environ.get("CODER_WORKSPACE_NAME")
+        or os.environ.get("HOSTNAME")
+        or slugify(args.puzzle_id)
+    )
+
+
+def ensure_remote_candidate_file(
+    args: argparse.Namespace,
+    manifest: dict[str, Any],
+    manifest_path: Path,
+) -> str:
+    if args.skip_upload:
+        remote = manifest.get("remote_candidate_file")
+        if not remote:
+            raise SystemExit("--skip-upload requires remote_candidate_file in the manifest")
+        return str(remote)
+    if manifest.get("remote_candidate_file") and not args.force_upload:
+        return str(manifest["remote_candidate_file"])
+
+    local_path = Path(str(manifest["candidate_file"])).expanduser()
+    if not local_path.is_file():
+        raise SystemExit(f"candidate file not found: {local_path}")
+    ssh_key = args.seedchecker_ssh_key.expanduser()
+    if not ssh_key.is_file():
+        raise SystemExit(
+            f"seedchecker SSH key missing: {ssh_key}; put the PEM there with chmod 600"
+        )
+    if ssh_key.stat().st_mode & 0o077:
+        raise SystemExit(f"seedchecker SSH key is too open; run: chmod 600 {ssh_key}")
+
+    remote_root = args.seedchecker_remote_root.rstrip("/")
+    workspace_name = seedchecker_workspace_name(args)
+    puzzle_id = slugify(args.puzzle_id)
+    manifest_id = safe_remote_component(str(manifest["manifest_id"]))
+    remote_dir = f"{remote_root}/{workspace_name}/{puzzle_id}/{manifest_id}"
+    remote_name = safe_remote_component(local_path.name)
+    remote_file = f"{remote_dir}/{remote_name}"
+    ssh_opts = [
+        "ssh",
+        "-i",
+        str(ssh_key),
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=6",
+    ]
+    mkdir_cmd = f"mkdir -p {shlex.quote(remote_dir)} && chmod 700 {shlex.quote(remote_dir)}"
+    subprocess.run([*ssh_opts, args.seedchecker_ssh_target, mkdir_cmd], check=True)
+    rsync_ssh = " ".join(shlex.quote(part) for part in ssh_opts)
+    subprocess.run(
+        [
+            "rsync",
+            "-az",
+            "-e",
+            rsync_ssh,
+            str(local_path),
+            f"{args.seedchecker_ssh_target}:{remote_file}",
+        ],
+        check=True,
+    )
+    manifest["remote_candidate_file"] = remote_file
+    manifest["remote_candidate_uploaded_at"] = utcnow()
+    write_json(manifest_path, manifest)
+    return remote_file
+
+
+def checker_request_from_manifest(
+    ws: Path,
+    args: argparse.Namespace,
+    manifest: dict[str, Any],
+    *,
+    candidate_file: str,
+) -> dict[str, Any]:
     brief = read_json(ws / "source" / "puzzle_brief.json")
     target = brief["target_profile"]
     request_type = args.request_type or manifest["candidate_type"]
@@ -965,7 +1180,7 @@ def checker_request_from_manifest(ws: Path, args: argparse.Namespace, manifest: 
     if path_mode == "none":
         path_mode = "auto"
     request = {
-        "candidate_file": manifest["candidate_file"],
+        "candidate_file": candidate_file,
         "request_type": request_type,
         "target_address": args.target_address or target["target_address"],
         "candidate_count": int(manifest["candidate_count"]),
@@ -989,23 +1204,28 @@ def command_checker_submit(args: argparse.Namespace) -> int:
     if not manifest_path.is_file():
         raise SystemExit(f"manifest not found: {manifest_path}")
     manifest = read_json(manifest_path)
-    request = checker_request_from_manifest(ws, args, manifest)
+    remote_candidate_file = ensure_remote_candidate_file(args, manifest, manifest_path)
+    request = checker_request_from_manifest(
+        ws,
+        args,
+        manifest,
+        candidate_file=remote_candidate_file,
+    )
     request_id = args.request_id or next_id("CHECKREQ")
     request_path = ws / "checker" / "requests" / f"{request_id}.json"
     write_json(request_path, request, overwrite=False)
 
-    submit = run_json(seedchecker_cmd(args.seedchecker_home) + ["submit", "--request", str(request_path)])
-    eta = int(submit.get("estimated_finish_in_sec") or submit.get("estimated_runtime_sec") or 0)
+    estimate = mcp_tool_call(args, "seedchecker_estimate_job", request)
+    eta = seedchecker_eta_seconds(estimate)
     if eta > MAX_AUTO_CHECKER_ETA_SEC and not args.approved_over_16h:
-        job_id = submit.get("job_id")
-        if job_id:
-            try:
-                run_json(seedchecker_cmd(args.seedchecker_home) + ["cancel", str(job_id)])
-            except SystemExit:
-                pass
-        raise SystemExit(f"checker ETA {eta}s exceeds 16h; canceled/blocked pending Can approval")
+        raise SystemExit(f"checker ETA {eta}s exceeds 16h; blocked pending Can approval")
+    if estimate.get("duplicate"):
+        submit = estimate
+    else:
+        submit = mcp_tool_call(args, "seedchecker_submit_job", request)
 
     wait_state = build_wait_state(ws, args, manifest, manifest_path, request_path, submit, eta)
+    wait_state["mcp_estimate_response"] = estimate
     wait_path = ws / "checker" / "waiting" / f"{wait_state['checker_job_id']}.json"
     write_json(wait_path, wait_state, overwrite=False)
     event(
@@ -1066,7 +1286,11 @@ def build_wait_state(
         "next_action_on_error": "Save error, do not retry blindly, ask Layer 2 to decide.",
         "scheduler_response": submit,
     }
-    missing = [field for field in REQUIRED_CHECKER_FIELDS if not state.get(field)]
+    missing = [
+        field
+        for field in REQUIRED_CHECKER_FIELDS
+        if state.get(field) is None or state.get(field) == "" or state.get(field) == [] or state.get(field) == {}
+    ]
     if missing:
         raise SystemExit(f"wait-state missing required fields: {', '.join(missing)}")
     return state
@@ -1086,7 +1310,7 @@ def command_checker_poll(args: argparse.Namespace) -> int:
             "scheduler_response": state.get("scheduler_response"),
         }
     else:
-        result = run_json(seedchecker_cmd(args.seedchecker_home) + ["status", state["checker_job_id"]])
+        result = mcp_tool_call(args, "seedchecker_get_status", {"job_id": state["checker_job_id"]})
     status = result.get("status")
     if status not in {"completed", "failed", "canceled"}:
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -1242,6 +1466,17 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--puzzle-id", required=True)
 
 
+def add_seedchecker_mcp_args(parser: argparse.ArgumentParser, *, include_upload: bool) -> None:
+    parser.add_argument("--seedchecker-mcp-command", default=DEFAULT_SEEDCHECKER_MCP_COMMAND)
+    if include_upload:
+        parser.add_argument("--seedchecker-ssh-target", default=DEFAULT_SEEDCHECKER_CPU_SSH_TARGET)
+        parser.add_argument("--seedchecker-ssh-key", type=Path, default=DEFAULT_SEEDCHECKER_SSH_KEY)
+        parser.add_argument("--seedchecker-remote-root", default=DEFAULT_SEEDCHECKER_REMOTE_ROOT)
+        parser.add_argument("--seedchecker-workspace-name")
+        parser.add_argument("--skip-upload", action="store_true")
+        parser.add_argument("--force-upload", action="store_true")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1353,7 +1588,7 @@ def build_parser() -> argparse.ArgumentParser:
     manifest.add_argument("--hash-file", action="store_true")
     manifest.set_defaults(func=command_manifest)
 
-    submit = sub.add_parser("checker-submit", help="Submit a manifest to the seedchecker scheduler and create wait-state")
+    submit = sub.add_parser("checker-submit", help="Submit a manifest through seedchecker MCP and create wait-state")
     add_common(submit)
     submit.add_argument("--manifest-id", required=True)
     submit.add_argument("--layer2-task-id", required=True)
@@ -1372,12 +1607,14 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--approved-over-16h", action="store_true")
     submit.add_argument("--budget-name")
     submit.add_argument("--seedchecker-home", type=Path, default=DEFAULT_SEEDCHECKER)
+    add_seedchecker_mcp_args(submit, include_upload=True)
     submit.set_defaults(func=command_checker_submit)
 
     poll = sub.add_parser("checker-poll", help="Poll a checker wait-state and write result handoff when terminal")
     add_common(poll)
     poll.add_argument("--checker-job-id", required=True)
     poll.add_argument("--seedchecker-home", type=Path, default=DEFAULT_SEEDCHECKER)
+    add_seedchecker_mcp_args(poll, include_upload=False)
     poll.set_defaults(func=command_checker_poll)
 
     status = sub.add_parser("status", help="Show puzzle workspace status")
