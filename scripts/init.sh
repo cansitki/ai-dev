@@ -105,22 +105,23 @@ echo "Check ~/README.md for quick start guide"
 echo ""
 
 # Obsidian vault + CLI setup
-# Vault is mounted at ~/vault via Docker volume (same uid 1000, no permission issues)
-# CLI wrapper and socket are also mounted from host
-if [ -d ~/vault ]; then
-  echo "Obsidian vault mounted at ~/vault"
+# Obsidian Desktop runs inside the workspace. The canonical vault path is
+# ~/Can, with ~/vault kept as a compatibility symlink by obsidian-serve.sh.
+VAULT_DIR="${OBSIDIAN_VAULT_DIR:-$HOME/Can}"
+if [ -d "$VAULT_DIR" ]; then
+  echo "Obsidian vault available at $VAULT_DIR"
 
   # Symlink CLAUDE.md from vault so Claude Code loads brain rules
   mkdir -p ~/.claude
   if [ ! -f ~/.claude/settings.json ]; then
     echo '{}' > ~/.claude/settings.json
   fi
-  if [ -f ~/vault/CLAUDE.md ]; then
-    ln -sf ~/vault/CLAUDE.md ~/.claude/CLAUDE.md
+  if [ -f "$VAULT_DIR/CLAUDE.md" ]; then
+    ln -sf "$VAULT_DIR/CLAUDE.md" ~/.claude/CLAUDE.md
     echo "CLAUDE.md symlinked from vault"
   fi
 
-  echo "Obsidian CLI available at /usr/local/bin/obsidian"
+  echo "Obsidian CLI available at ~/.local/bin/obsidian"
 else
-  echo "WARNING: Vault not mounted. Add vault volume to workspace template."
+  echo "WARNING: Obsidian vault not found at $VAULT_DIR. Start Obsidian headless or complete Sync setup via the Obsidian VNC app."
 fi

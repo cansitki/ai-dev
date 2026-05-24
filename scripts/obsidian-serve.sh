@@ -19,9 +19,31 @@ NC='\033[0m'
 
 DISPLAY_NUM=99
 VNC_PORT=5999
+NOVNC_PORT=6080
+OBSIDIAN_SESSION=obsidian-headless
+OBSIDIAN_BIN=/opt/Obsidian/obsidian
+VAULT_DIR="${OBSIDIAN_VAULT_DIR:-$HOME/Can}"
+VAULT_LINK="$HOME/vault"
+OBSIDIAN_RUNNER="$HOME/.local/bin/obsidian-headless-loop"
 
 mkdir -p "$HOME/.config/obsidian"
-mkdir -p "$HOME/vault"
+mkdir -p "$HOME/.local/bin"
+mkdir -p "$VAULT_DIR"
+
+# Keep ~/vault as the convention alias, but do not destroy a real vault if a
+# future workspace has mounted or restored one there.
+if [ ! -e "$VAULT_LINK" ]; then
+    ln -s "$VAULT_DIR" "$VAULT_LINK"
+elif [ -d "$VAULT_LINK" ] && [ ! -L "$VAULT_LINK" ] && [ -z "$(find "$VAULT_LINK" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+    rmdir "$VAULT_LINK"
+    ln -s "$VAULT_DIR" "$VAULT_LINK"
+elif [ -L "$VAULT_LINK" ] && [ "$(readlink "$VAULT_LINK")" != "$VAULT_DIR" ]; then
+    ln -sfn "$VAULT_DIR" "$VAULT_LINK"
+fi
+
+obsidian_running() {
+    pgrep -u "$USER" -f "^${OBSIDIAN_BIN} .*--no-sandbox" > /dev/null
+}
 
 # --- Xvfb ---
 if ! pgrep -f "Xvfb :${DISPLAY_NUM}" > /dev/null; then
@@ -33,7 +55,16 @@ fi
 export DISPLAY=":${DISPLAY_NUM}"
 
 # --- D-Bus session (required by Obsidian + obsidian CLI) ---
-if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] || ! pgrep -u "$USER" -x dbus-daemon > /dev/null; then
+if [ -f "$HOME/.dbus-env" ]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.dbus-env"
+fi
+DBUS_SOCKET=""
+if [[ "${DBUS_SESSION_BUS_ADDRESS:-}" == unix:path=* ]]; then
+    DBUS_SOCKET="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"
+    DBUS_SOCKET="${DBUS_SOCKET%%,*}"
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] || [ -z "$DBUS_SOCKET" ] || [ ! -S "$DBUS_SOCKET" ]; then
     echo -e "${BOLD}Starting D-Bus session${NC}"
     eval "$(dbus-launch --sh-syntax)"
     # Persist for other shells
@@ -42,16 +73,39 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] || ! pgrep -u "$USER" -x dbus-daemon >
 fi
 
 # --- Obsidian Desktop ---
-# Match the actual binary at /opt/Obsidian, not anything else with "obsidian"
-# in its name (which would include this script and obsidian-serve etc.)
-if ! pgrep -fx "/opt/Obsidian/obsidian.*" > /dev/null && ! pgrep -fx "obsidian.*--no-sandbox" > /dev/null; then
+# Use the actual Desktop binary. PATH often resolves `obsidian` to the CLI
+# helper in ~/.local/bin, which cannot start the app and leaves a stale socket.
+if ! obsidian_running; then
     echo -e "${BOLD}Starting Obsidian (headless)${NC}"
-    nohup obsidian --no-sandbox --disable-gpu > "$HOME/.config/obsidian/obsidian.log" 2>&1 &
-    sleep 4
-    if pgrep -fx "/opt/Obsidian/obsidian.*" > /dev/null || pgrep -fx "obsidian.*--no-sandbox" > /dev/null; then
+    rm -f "$HOME/.obsidian-cli.sock"
+    cat > "$OBSIDIAN_RUNNER" <<EOF
+#!/bin/bash
+source "$HOME/.dbus-env" 2>/dev/null || true
+export DISPLAY=":${DISPLAY_NUM}"
+
+while true; do
+    rm -f "$HOME/.obsidian-cli.sock"
+    "$OBSIDIAN_BIN" --no-sandbox --disable-gpu "$VAULT_DIR" >> "$HOME/.config/obsidian/obsidian.log" 2>&1
+    status=\$?
+    printf '[%s] Obsidian exited with status %s; restarting in 5s\n' "\$(date -Is)" "\$status" >> "$HOME/.config/obsidian/obsidian.log"
+    sleep 5
+done
+EOF
+    chmod +x "$OBSIDIAN_RUNNER"
+    tmux kill-session -t "${OBSIDIAN_SESSION}" 2>/dev/null || true
+    tmux new-session -d -s "${OBSIDIAN_SESSION}" "$OBSIDIAN_RUNNER"
+    for _ in {1..10}; do
+        if obsidian_running; then
+            break
+        fi
+        sleep 1
+    done
+    if obsidian_running; then
         echo -e "${GREEN}Obsidian started${NC}"
     else
         echo -e "${YELLOW}Obsidian did not start — check ~/.config/obsidian/obsidian.log${NC}"
+        tmux capture-pane -pt "${OBSIDIAN_SESSION}" -S -80 2>/dev/null || true
+        exit 1
     fi
 fi
 
@@ -64,7 +118,6 @@ if ! pgrep -f "x11vnc.*:${DISPLAY_NUM}" > /dev/null; then
 fi
 
 # --- noVNC HTTP/WebSocket bridge so Coder's app proxy can serve the GUI ---
-NOVNC_PORT=6080
 if ! tmux has-session -t novnc 2>/dev/null; then
     echo -e "${BOLD}Starting noVNC bridge on port ${NOVNC_PORT}${NC}"
     tmux new-session -d -s novnc "websockify --web=/usr/share/novnc ${NOVNC_PORT} localhost:${VNC_PORT}"

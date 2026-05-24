@@ -21,6 +21,7 @@ A production-ready Coder template for AI-assisted full-stack development. Featur
 - **ZSH** - Oh My Zsh with Starship prompt, autosuggestions, and syntax highlighting
 - **tmux** - Session persistence for long-running agent sessions
 - **direnv** - Per-project environment management
+- **Obsidian Desktop** - Headless workspace-local Obsidian with CLI access and noVNC GUI
 
 ### VS Code Integration
 - 20 curated extensions including Solidity, Tailwind CSS, GraphQL, Prisma, GitLens, Docker, Error Lens, and more
@@ -148,6 +149,7 @@ cpu_shares  = 6144    # 6 CPU cores (relative weight)
 | Claude Code | Web app via module | Claude Code web interface |
 | Pi Agent | Terminal app | Pi in a terminal window |
 | File Browser | Subdomain | Web-based file management |
+| Obsidian VNC | Subdomain (`:6080`) | noVNC access to headless Obsidian for Sync login and visual checks |
 
 ## Troubleshooting
 
@@ -169,6 +171,15 @@ docker info
 ### GSD2 commands not available
 ```bash
 npm install -g gsd-pi
+```
+
+### Obsidian CLI cannot find Obsidian
+The Coder script `scripts/obsidian-serve.sh` must start the Desktop app with `/opt/Obsidian/obsidian`, not `obsidian`, because `~/.local/bin/obsidian` is the CLI helper. The script runs a Desktop watchdog in tmux session `obsidian-headless`, opens the workspace vault at `~/Can`, restarts Desktop if it exits, and keeps `~/vault` as a compatibility symlink.
+
+```bash
+./scripts/obsidian-serve.sh
+tmux ls | grep obsidian-headless
+obsidian read file="Vault Index"
 ```
 
 ## Security
