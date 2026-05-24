@@ -10,7 +10,7 @@ export TZ="${TZ:-Europe/Bucharest}"
 
 SOURCE_DIR="${WORKSPACE_RAW_SOURCE:-$HOME}"
 RCLONE_REMOTE="${WORKSPACE_R2_REMOTE:-r2}"
-R2_BUCKET="${WORKSPACE_R2_BUCKET:-vault}"
+R2_BUCKET="${WORKSPACE_R2_BUCKET:-vm-backup}"
 R2_PREFIX="${WORKSPACE_R2_PREFIX:-workspace-raw/main-workspace}"
 BACKUP_TIMES="${WORKSPACE_R2_BACKUP_TIMES:-00:45 03:45 06:45 09:45 12:45 15:45 18:45 21:45}"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/workspace-r2-raw-backup"
@@ -34,6 +34,24 @@ cat > "$EXCLUDE_FILE" <<'EOF'
 /.rustup/**
 /Can/workspace-raw/**
 /.obsidian-cli.sock
+/.config/obsidian/Cache/**
+/.config/obsidian/Code Cache/**
+/.config/obsidian/DawnGraphiteCache/**
+/.config/obsidian/DawnWebGPUCache/**
+/.config/obsidian/GPUCache/**
+/.config/obsidian/IndexedDB/**
+/.config/obsidian/Local Storage/**
+/.config/obsidian/WebStorage/**
+/.config/obsidian/DIPS*
+/.config/obsidian/TransportSecurity
+/.config/obsidian/obsidian.log
+/.codex/log/**
+/.codex/*.sqlite*
+/.codex/models_cache.json
+/.codex/history.jsonl
+/.codex/sessions/**
+/.local/state/*backup/*.log
+/.local/state/*backup/status.json
 **/node_modules/**
 **/.venv/**
 **/venv/**
@@ -45,6 +63,12 @@ cat > "$EXCLUDE_FILE" <<'EOF'
 **/.turbo/**
 **/target/**
 **/*.pyc
+**/*.sqlite-wal
+**/*.sqlite-shm
+**/*.db-wal
+**/*.db-shm
+**/*.lock
+**/*.log
 **/core
 **/core.*
 EOF
@@ -75,7 +99,7 @@ write_status() {
   "next_run": $(json_string "$next_run"),
   "source": $(json_string "$SOURCE_DIR"),
   "destination": $(json_string "$RCLONE_REMOTE:$R2_BUCKET/$R2_PREFIX/current"),
-  "mode": "raw-rclone-sync-no-password",
+  "mode": "raw-rclone-copy-no-delete",
   "uploaded": $(json_string "$uploaded")
 }
 EOF
@@ -135,19 +159,17 @@ run_backup() {
     return 1
   fi
 
-  local started stamp dest backup_dir output rc
+  local started stamp dest output rc
   started="$(date --iso-8601=seconds)"
   stamp="$(date '+%Y%m%d-%H%M%S')"
   dest="$RCLONE_REMOTE:$R2_BUCKET/$R2_PREFIX/current"
-  backup_dir="$RCLONE_REMOTE:$R2_BUCKET/$R2_PREFIX/replaced/$stamp"
 
   log "raw R2 backup started: $SOURCE_DIR -> $dest"
   write_status "running" "raw R2 backup running" "$(next_run_iso)"
 
   set +e
   output="$(
-    rclone sync "$SOURCE_DIR" "$dest" \
-      --backup-dir "$backup_dir" \
+    rclone copy "$SOURCE_DIR" "$dest" \
       --exclude-from "$EXCLUDE_FILE" \
       --fast-list \
       --transfers 8 \
