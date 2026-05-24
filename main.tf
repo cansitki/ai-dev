@@ -282,7 +282,7 @@ resource "coder_script" "tools_ai" {
 
 resource "coder_script" "codex_usage_guard" {
   agent_id           = coder_agent.main.id
-  display_name       = "Codex Usage Guard"
+  display_name       = "Codex & Puzzle Guards"
   icon               = "/icon/terminal.svg"
   run_on_start       = true
   start_blocks_login = false
@@ -294,7 +294,11 @@ resource "coder_script" "codex_usage_guard" {
 ${file("${path.module}/scripts/codex-usage-guard.py")}
 PY
     chmod +x "$HOME/.local/bin/codex-usage-guard"
-    echo "Installed codex-usage-guard"
+    cat > "$HOME/.local/bin/puzzle-swarm" <<'PY'
+${file("${path.module}/scripts/puzzle-swarm.py")}
+PY
+    chmod +x "$HOME/.local/bin/puzzle-swarm"
+    echo "Installed codex-usage-guard and puzzle-swarm"
   EOT
 }
 

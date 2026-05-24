@@ -250,7 +250,10 @@ def load_budget(codex_home: Path, name: str) -> dict[str, Any]:
 def command_check(args: argparse.Namespace) -> int:
     codex_home = codex_home_from_args(args)
     snapshot = latest_usage(codex_home)
-    current = snapshot.weekly_used_percent if snapshot else None
+    local_current = snapshot.weekly_used_percent if snapshot else None
+    external_values = [value for value in (args.external_weekly_used_percent or []) if value is not None]
+    all_values = [value for value in [local_current, *external_values] if value is not None]
+    current = max(all_values) if all_values else None
     now_data = snapshot_dict(snapshot)
 
     if current is None:
@@ -293,6 +296,8 @@ def command_check(args: argparse.Namespace) -> int:
     result = {
         "decision": decision,
         "current_weekly_used_percent": current,
+        "local_weekly_used_percent": local_current,
+        "external_weekly_used_percent": external_values,
         "stop_at_weekly_used_percent": stop_at,
         "remaining_percent_points": round(remaining, 4),
         "budget": budget,
@@ -321,6 +326,7 @@ def command_run(args: argparse.Namespace) -> int:
         format=args.format,
         name=args.name,
         max_weekly_percent=args.max_weekly_percent,
+        external_weekly_used_percent=args.external_weekly_used_percent,
         max_data_age_seconds=args.max_data_age_seconds,
     )
     check_result = command_check(check_args)
@@ -366,6 +372,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--format", choices=["text", "json"], default=argparse.SUPPRESS)
     check.add_argument("--name")
     check.add_argument("--max-weekly-percent", type=float)
+    check.add_argument("--external-weekly-used-percent", type=float, action="append")
     check.add_argument("--max-data-age-seconds", type=int)
     check.set_defaults(func=command_check)
 
@@ -373,6 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--format", choices=["text", "json"], default=argparse.SUPPRESS)
     run.add_argument("--name")
     run.add_argument("--max-weekly-percent", type=float)
+    run.add_argument("--external-weekly-used-percent", type=float, action="append")
     run.add_argument("--max-data-age-seconds", type=int)
     run.add_argument("command", nargs=argparse.REMAINDER)
     run.set_defaults(func=command_run)

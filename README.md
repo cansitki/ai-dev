@@ -10,6 +10,7 @@ A production-ready Coder template for AI-assisted full-stack development. Featur
 - **Pi** - Minimal terminal coding agent with extension support
 - **GSD-2** - Autonomous development agent for Pi (`gsd-pi`); GSD-1/get-shit-done-cc is intentionally not installed
 - **Codex usage guard** - Local budget guard for unattended Codex runs using Codex session rate-limit telemetry
+- **Puzzle swarm control plane** - `puzzle-swarm` workspace/task/wait-state CLI for isolated puzzle runs
 - All AI tools are configurable via template variables
 
 ### Development Environment
@@ -63,6 +64,7 @@ claude --version          # Claude Code
 opencode --version        # OpenCode
 pi --version              # Pi coding agent
 codex-usage-guard status  # Codex weekly/primary usage from local session logs
+puzzle-swarm --help       # Puzzle workspace/task/checker control plane
 docker ps                 # Docker access
 node --version            # Node.js
 bun --version             # Bun
@@ -186,6 +188,23 @@ codex-usage-guard run --name sleep -- codex exec "work on puzzle handoff"
 ```
 
 Run `codex-usage-guard check --name sleep` before loop iterations, or wrap worker launches with `codex-usage-guard run --name sleep -- ...`. A non-zero exit means the master must stop new Codex work and leave the puzzle state in files.
+
+When multiple puzzle workspaces report their own account-wide Codex usage, feed the highest external reading into the master check:
+
+```bash
+codex-usage-guard check --name sleep --external-weekly-used-percent 23
+```
+
+### Run puzzle workspaces
+`puzzle-swarm` creates the per-puzzle folder structure, Layer 2/Layer 3 task packets, candidate manifests, checker wait-state files, and result handoffs.
+
+```bash
+puzzle-swarm init --puzzle-id level5 --name "Zd3N Level 5" --target-address 1cryptoGeCRiTzVgxBQcKFFjSVydN1GW7 --target-kind private-key --path-mode none
+puzzle-swarm l2-task --puzzle-id level5 --direction "Geometry clue audit" --question "Which geometry extraction is worth testing?"
+puzzle-swarm status --puzzle-id level5
+```
+
+Workers must write durable files before waiting. Use `puzzle-swarm checker-submit` for checker MCP/scheduler jobs so the required wait-state is created before the worker sleeps.
 
 ### Obsidian CLI cannot find Obsidian
 The Coder script `scripts/obsidian-serve.sh` must start the Desktop app with `/opt/Obsidian/obsidian`, not `obsidian`, because `~/.local/bin/obsidian` is the CLI helper. The script runs a Desktop watchdog in tmux session `obsidian-headless`, opens the workspace vault at `~/Can`, restarts Desktop if it exits, and keeps `~/vault` as a compatibility symlink.
