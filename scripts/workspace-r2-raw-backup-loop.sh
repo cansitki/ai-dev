@@ -32,6 +32,7 @@ cat > "$EXCLUDE_FILE" <<'EOF'
 /.bun/install/cache/**
 /.cargo/registry/**
 /.rustup/**
+/Can/**
 /Can/workspace-raw/**
 /.obsidian-cli.sock
 /.config/obsidian/Cache/**
@@ -42,6 +43,8 @@ cat > "$EXCLUDE_FILE" <<'EOF'
 /.config/obsidian/IndexedDB/**
 /.config/obsidian/Local Storage/**
 /.config/obsidian/WebStorage/**
+/.config/obsidian/.org.chromium.Chromium.*
+/.config/obsidian/Singleton*
 /.config/obsidian/DIPS*
 /.config/obsidian/TransportSecurity
 /.config/obsidian/obsidian.log
@@ -50,8 +53,17 @@ cat > "$EXCLUDE_FILE" <<'EOF'
 /.codex/models_cache.json
 /.codex/history.jsonl
 /.codex/sessions/**
+/.codex/tmp/**
+/.gsd/sessions/**
+/.openclaw/agents/*/agent/codex-home/tmp/**
+/.openclaw/agents/*/agent/codex-home/*.sqlite*
+/.openclaw/orchestrators/*/runs/**
+/.openclaw/orchestrators/*/state/**
 /.local/state/*backup/*.log
 /.local/state/*backup/status.json
+/projects/discord-bot/data/*.db*
+/projects/seed-checker/outputs/**
+**/.git/**
 **/node_modules/**
 **/.venv/**
 **/venv/**
@@ -84,6 +96,122 @@ release_lock() {
 
 json_string() {
   printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+}
+
+create_live_state_snapshots() {
+  local snapshot_root tmp_root
+  snapshot_root="$SOURCE_DIR/backups/workspace-live-state/current"
+  tmp_root="$SOURCE_DIR/backups/workspace-live-state/.current.tmp"
+
+  rm -rf "$tmp_root"
+  mkdir -p "$tmp_root"
+
+  if ! python3 - "$SOURCE_DIR" "$tmp_root" <<'PY'
+import datetime as dt
+import json
+import os
+import shutil
+import sqlite3
+import sys
+import tarfile
+from pathlib import Path
+
+source = Path(sys.argv[1]).resolve()
+root = Path(sys.argv[2]).resolve()
+manifest = {
+    "created_at_utc": dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    "schema": "workspace-live-state-snapshot.v1",
+    "sqlite_snapshots": [],
+    "archives": [],
+    "errors": [],
+}
+
+def safe_rel(path: Path) -> Path:
+    rel = path.resolve().relative_to(source)
+    if any(part in {".env", ".ssh", "credentials"} for part in rel.parts):
+        raise ValueError(f"refusing sensitive path: {rel}")
+    return rel
+
+def snapshot_sqlite(src: Path, dst_rel: Path) -> None:
+    if not src.is_file():
+        return
+    dst = root / dst_rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        source_db = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=5)
+        try:
+            target_db = sqlite3.connect(dst)
+            try:
+                source_db.backup(target_db)
+            finally:
+                target_db.close()
+        finally:
+            source_db.close()
+        manifest["sqlite_snapshots"].append({"source": str(safe_rel(src)), "snapshot": str(dst_rel), "mode": "sqlite_backup"})
+    except Exception as exc:
+        manifest["errors"].append({"source": str(src), "error": f"sqlite_backup_failed: {exc}"})
+        try:
+            shutil.copy2(src, dst)
+            manifest["sqlite_snapshots"].append({"source": str(safe_rel(src)), "snapshot": str(dst_rel), "mode": "copy2_fallback"})
+        except Exception as copy_exc:
+            manifest["errors"].append({"source": str(src), "error": f"copy_fallback_failed: {copy_exc}"})
+
+snapshot_sqlite(source / "projects/discord-bot/data/bot.db", Path("discord-bot/data/bot.db"))
+
+agent_root = source / ".openclaw/agents"
+if agent_root.is_dir():
+    for db in sorted(agent_root.glob("*/agent/codex-home/*.sqlite")):
+        agent = db.parts[-4]
+        snapshot_sqlite(db, Path("openclaw-agent-sqlite") / agent / db.name)
+
+def archive_selected(name: str, patterns: list[str], max_file_bytes: int = 50 * 1024 * 1024) -> None:
+    files: list[Path] = []
+    for pattern in patterns:
+        files.extend(p for p in source.glob(pattern) if p.is_file())
+    files = sorted(set(files))
+    if not files:
+        return
+    out = root / name
+    out.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with tarfile.open(out, "w:gz") as tar:
+        for path in files:
+            try:
+                rel = safe_rel(path)
+                if path.stat().st_size > max_file_bytes:
+                    manifest["errors"].append({"source": str(rel), "error": "skipped_oversize"})
+                    continue
+                tar.add(path, arcname=str(rel), recursive=False)
+                count += 1
+            except Exception as exc:
+                manifest["errors"].append({"source": str(path), "error": f"archive_failed: {exc}"})
+    manifest["archives"].append({"archive": name, "files": count})
+
+archive_selected(
+    "openclaw-orchestrator-state.tar.gz",
+    [
+        ".openclaw/orchestrators/*/state/**/*.json",
+        ".openclaw/orchestrators/*/state/**/*.jsonl",
+    ],
+)
+archive_selected(
+    "gsd-sessions.tar.gz",
+    [
+        ".gsd/sessions/**/*.jsonl",
+    ],
+)
+
+(root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  then
+    log "live-state snapshot failed; continuing raw backup without refreshed snapshots"
+    rm -rf "$tmp_root"
+    return 0
+  fi
+
+  rm -rf "$snapshot_root"
+  mv "$tmp_root" "$snapshot_root"
+  log "live-state snapshot refreshed at $snapshot_root"
 }
 
 write_status() {
@@ -166,11 +294,13 @@ run_backup() {
 
   log "raw R2 backup started: $SOURCE_DIR -> $dest"
   write_status "running" "raw R2 backup running" "$(next_run_iso)"
+  create_live_state_snapshots
 
   set +e
   output="$(
     rclone copy "$SOURCE_DIR" "$dest" \
       --exclude-from "$EXCLUDE_FILE" \
+      --no-update-modtime \
       --fast-list \
       --transfers 8 \
       --checkers 16 \
