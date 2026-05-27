@@ -45,8 +45,14 @@ for repo in "${repos[@]}"; do
     echo "[ok] $repo already cloned"
     continue
   fi
-  echo "[clone] cansitki/$repo"
-  gh repo clone "cansitki/$repo" "$target" || echo "[warn] could not clone cansitki/$repo"
+  owner="cansitki"
+  case "$repo" in
+    antelok-collector-facebook|antelok-media-worker)
+      owner="antelokhq"
+      ;;
+  esac
+  echo "[clone] $owner/$repo"
+  gh repo clone "$owner/$repo" "$target" || echo "[warn] could not clone $owner/$repo"
 done
 
 if [ ! -d "$HOME/Can/.git" ] && gh repo view cansitki/vault >/dev/null 2>&1; then
