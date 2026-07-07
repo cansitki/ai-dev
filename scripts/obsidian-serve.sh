@@ -30,6 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_SCRIPT_DIR="${NOMARH_TEMPLATE_SCRIPTS_DIR:-/opt/ai-dev-template/scripts}"
 OBSIDIAN_CLI="$HOME/.local/bin/obsidian"
 OBSIDIAN_IPC="$HOME/.local/bin/obsidian-ipc"
+OBSIDIAN_DESKTOP_CLI=/opt/Obsidian/obsidian-cli
 OBSIDIAN_FLUSHER="$HOME/.local/bin/obsidian-flush-spool"
 OBSIDIAN_TMP_DIR="$HOME/.cache/obsidian-tmp"
 
@@ -48,6 +49,57 @@ if [ -x "$OBSIDIAN_CLI" ] && ! grep -q "obsidian-flush-spool" "$OBSIDIAN_CLI" 2>
         chmod 0755 "$OBSIDIAN_IPC"
     fi
 fi
+if [ ! -x "$OBSIDIAN_IPC" ] && [ -x "$OBSIDIAN_DESKTOP_CLI" ]; then
+    install -m 0755 "$OBSIDIAN_DESKTOP_CLI" "$OBSIDIAN_IPC"
+fi
+
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+home = Path.home()
+config_dir = home / ".config" / "obsidian"
+vault_dir = Path.home() / "Can"
+config_dir.mkdir(parents=True, exist_ok=True)
+
+config_path = config_dir / "obsidian.json"
+try:
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+except Exception:
+    config = {}
+
+vaults = config.setdefault("vaults", {})
+vault = vaults.setdefault("99e56272d87005fa", {})
+vault["path"] = str(vault_dir)
+vault["open"] = True
+vault.setdefault("ts", 1779575439920)
+config["cli"] = True
+config_path.write_text(json.dumps(config, separators=(",", ":")) + "\n")
+
+window_path = config_dir / "99e56272d87005fa.json"
+if not window_path.exists():
+    window_path.write_text(
+        json.dumps(
+            {
+                "x": 448,
+                "y": 140,
+                "width": 1024,
+                "height": 800,
+                "isMaximized": False,
+                "devTools": False,
+                "zoom": 0,
+            },
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
+
+vault_config_dir = vault_dir / ".obsidian"
+vault_config_dir.mkdir(parents=True, exist_ok=True)
+(vault_dir / "daily notes").mkdir(parents=True, exist_ok=True)
+(vault_config_dir / "daily-notes.json").write_text('{"folder":"daily notes"}\n')
+PY
+
 template_file() {
     if [ -f "$SCRIPT_DIR/$1" ]; then
         printf '%s\n' "$SCRIPT_DIR/$1"
