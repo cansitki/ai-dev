@@ -1,7 +1,8 @@
 terraform {
   required_providers {
     coder = {
-      source = "coder/coder"
+      source  = "coder/coder"
+      version = ">= 2.4.0"
     }
     docker = {
       source = "kreuzwerker/docker"
@@ -11,6 +12,79 @@ terraform {
 
 locals {
   username = data.coder_workspace_owner.me.name
+
+  bootstrap_parameters = {
+    claude_code_api_key                = { display_name = "Claude Code API key", description = "Anthropic API key for Claude Code", default = "", order = 100, form_type = "input", mask = true }
+    openai_api_key                     = { display_name = "OpenAI API key", description = "OpenAI API key for Codex/OpenAI-backed tools", default = "", order = 120, form_type = "input", mask = true }
+    github_token                       = { display_name = "GitHub token", description = "GitHub token for gh, private repos, and vault backup pushes", default = "", order = 130, form_type = "input", mask = true }
+    remotely_save_s3_access_key_id     = { display_name = "Remotely Save S3 access key ID", description = "Obsidian Remotely Save S3 access key ID", default = "", order = 300, form_type = "input", mask = true }
+    remotely_save_s3_secret_access_key = { display_name = "Remotely Save S3 secret access key", description = "Obsidian Remotely Save S3 secret access key", default = "", order = 310, form_type = "input", mask = true }
+    remotely_save_s3_bucket            = { display_name = "Remotely Save S3 bucket", description = "Obsidian Remotely Save S3 bucket", default = "", order = 320, form_type = "input", mask = false }
+    remotely_save_s3_endpoint          = { display_name = "Remotely Save S3 endpoint", description = "Obsidian Remotely Save S3 endpoint", default = "", order = 330, form_type = "input", mask = false }
+    remotely_save_s3_region            = { display_name = "Remotely Save S3 region", description = "Obsidian Remotely Save S3 region, usually auto for R2", default = "auto", order = 340, form_type = "input", mask = false }
+    remotely_save_remote_prefix        = { display_name = "Remotely Save remote prefix", description = "Optional Obsidian Remotely Save remote prefix", default = "", order = 350, form_type = "input", mask = false }
+    cloudflare_api_token               = { display_name = "Cloudflare API token", description = "Cloudflare API token for tunnels, DNS, R2, workers, and migrations", default = "", order = 400, form_type = "input", mask = true }
+    cloudflare_account_id              = { display_name = "Cloudflare account ID", description = "Cloudflare account ID", default = "", order = 410, form_type = "input", mask = false }
+    cloudflare_zone_id                 = { display_name = "Cloudflare zone ID", description = "Cloudflare zone ID for dev.bmu.one/bmu.one automation", default = "", order = 420, form_type = "input", mask = false }
+    cloudflare_kv_theme_namespace_id   = { display_name = "Theme KV namespace ID", description = "Cloudflare KV namespace ID used by the tmux theme sync worker", default = "", order = 430, form_type = "input", mask = false }
+    tmux_theme_sync_url                = { display_name = "Tmux theme sync URL", description = "Cloudflare Worker URL for tmux/Codex theme sync", default = "https://theme.nomarh.com", order = 435, form_type = "input", mask = false }
+    tmux_theme_sync_enabled            = { display_name = "Enable tmux theme sync", description = "Set false to install theme tools without auto-following the shared Worker theme", default = "true", order = 438, form_type = "input", mask = false }
+    tmux_theme_sync_token              = { display_name = "Tmux theme sync token", description = "Shared token for the tmux theme sync service", default = "", order = 440, form_type = "input", mask = true }
+    resend_api_key                     = { display_name = "Resend API key", description = "Resend API key for email tooling", default = "", order = 800, form_type = "input", mask = true }
+    mailgun_api_key                    = { display_name = "Mailgun API key", description = "Mailgun API key for email tooling", default = "", order = 810, form_type = "input", mask = true }
+    aws_access_key_id                  = { display_name = "AWS access key ID", description = "AWS access key ID for SES/S3/email tooling", default = "", order = 820, form_type = "input", mask = true }
+    aws_secret_access_key              = { display_name = "AWS secret access key", description = "AWS secret access key for SES/S3/email tooling", default = "", order = 830, form_type = "input", mask = true }
+  }
+
+  bootstrap_values = {
+    for key, parameter in data.coder_parameter.bootstrap : key => parameter.value
+  }
+
+  claude_code_api_key_value = local.bootstrap_values.claude_code_api_key != "" ? local.bootstrap_values.claude_code_api_key : var.claude_code_api_key
+  bootstrap_env = {
+    for env_name, value in {
+      GITHUB_TOKEN                       = local.bootstrap_values.github_token
+      GH_TOKEN                           = local.bootstrap_values.github_token
+      OPENAI_API_KEY                     = local.bootstrap_values.openai_api_key
+      ANTHROPIC_API_KEY                  = local.claude_code_api_key_value
+      CLOUDFLARE_API_TOKEN               = local.bootstrap_values.cloudflare_api_token
+      CLOUDFLARE_ACCOUNT_ID              = local.bootstrap_values.cloudflare_account_id
+      CLOUDFLARE_ZONE_ID                 = local.bootstrap_values.cloudflare_zone_id
+      CLOUDFLARE_KV_THEME_NAMESPACE_ID   = local.bootstrap_values.cloudflare_kv_theme_namespace_id
+      TMUX_THEME_SYNC_URL                = local.bootstrap_values.tmux_theme_sync_url
+      TMUX_THEME_SYNC_ENABLED            = local.bootstrap_values.tmux_theme_sync_enabled
+      TMUX_THEME_SYNC_TOKEN              = local.bootstrap_values.tmux_theme_sync_token
+      REMOTELY_SAVE_S3_ACCESS_KEY_ID     = local.bootstrap_values.remotely_save_s3_access_key_id
+      REMOTELY_SAVE_S3_SECRET_ACCESS_KEY = local.bootstrap_values.remotely_save_s3_secret_access_key
+      REMOTELY_SAVE_S3_BUCKET            = local.bootstrap_values.remotely_save_s3_bucket
+      REMOTELY_SAVE_S3_ENDPOINT          = local.bootstrap_values.remotely_save_s3_endpoint
+      REMOTELY_SAVE_S3_REGION            = local.bootstrap_values.remotely_save_s3_region
+      REMOTELY_SAVE_REMOTE_PREFIX        = local.bootstrap_values.remotely_save_remote_prefix
+      RESEND_API_KEY                     = local.bootstrap_values.resend_api_key
+      MAILGUN_API_KEY                    = local.bootstrap_values.mailgun_api_key
+      AWS_ACCESS_KEY_ID                  = local.bootstrap_values.aws_access_key_id
+      AWS_SECRET_ACCESS_KEY              = local.bootstrap_values.aws_secret_access_key
+    } : env_name => value if value != ""
+  }
+
+}
+
+locals {
+  coder_agent_internal_base_url = trimsuffix(var.coder_agent_url_override, "/")
+  coder_agent_internal_script = replace(
+    replace(
+      coder_agent.main.init_script,
+      "/export CODER_AGENT_URL=[^\\n]+/",
+      "export CODER_AGENT_URL=${local.coder_agent_internal_base_url}/"
+    ),
+    "/BINARY_URL=[^\\n]+/",
+    "BINARY_URL=${local.coder_agent_internal_base_url}/bin/coder-linux-${data.coder_provisioner.me.arch}"
+  )
+  coder_agent_init_script = var.coder_agent_url_override != "" ? local.coder_agent_internal_script : replace(
+    coder_agent.main.init_script,
+    "/localhost|127\\.0\\.0\\.1/",
+    "host.docker.internal"
+  )
 }
 
 # =============================================================================
@@ -29,16 +103,8 @@ variable "dotfiles_uri" {
   default     = ""
 }
 
-# --- OpenCode Configuration ---
-
-variable "opencode_model" {
-  description = "Default model for OpenCode"
-  type        = string
-  default     = "anthropic/claude-opus-4-6"
-}
-
-variable "opencode_config_json" {
-  description = "Full OpenCode config JSON override (takes precedence over opencode_model when non-empty)"
+variable "coder_agent_url_override" {
+  description = "Optional internal URL used by workspace agents to reach Coder when the public URL is behind an access proxy"
   type        = string
   default     = ""
 }
@@ -70,25 +136,130 @@ variable "claude_code_allowed_tools" {
   default     = ""
 }
 
-# --- Pi Coding Agent Configuration ---
+# --- VM Bootstrap Secrets ---
 
-variable "pi_api_key" {
-  description = "API key for Pi coding agent LLM provider (e.g. Anthropic key)"
+variable "github_token" {
+  description = "GitHub token for gh, private repo clones, and vault GitHub backup pushes"
   type        = string
   default     = ""
   sensitive   = true
 }
 
-variable "pi_model" {
-  description = "Model for Pi coding agent (e.g. claude-opus-4-6)"
+variable "openai_api_key" {
+  description = "OpenAI API key for Codex/OpenAI-backed tools"
   type        = string
-  default     = "claude-opus-4-6"
+  default     = ""
+  sensitive   = true
 }
 
-variable "pi_provider" {
-  description = "LLM provider for Pi coding agent (e.g. anthropic, openai, google)"
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token for tunnels, DNS, R2, workers, and migration scripts"
   type        = string
-  default     = "anthropic"
+  default     = ""
+  sensitive   = true
+}
+
+variable "cloudflare_account_id" {
+  description = "Cloudflare account ID"
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare zone ID for dev.bmu.one/bmu.one automation"
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_kv_theme_namespace_id" {
+  description = "Cloudflare KV namespace ID used by the tmux theme sync worker"
+  type        = string
+  default     = ""
+}
+
+variable "tmux_theme_sync_token" {
+  description = "Shared token for the tmux theme sync service"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "tmux_theme_sync_url" {
+  description = "Cloudflare Worker URL for tmux/Codex theme sync"
+  type        = string
+  default     = "https://theme.nomarh.com"
+}
+
+variable "tmux_theme_sync_enabled" {
+  description = "Whether tmux/Codex theme sync should auto-start when a token is configured"
+  type        = string
+  default     = "true"
+}
+
+variable "remotely_save_s3_access_key_id" {
+  description = "Obsidian Remotely Save S3 access key ID"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "remotely_save_s3_secret_access_key" {
+  description = "Obsidian Remotely Save S3 secret access key"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "remotely_save_s3_bucket" {
+  description = "Obsidian Remotely Save S3 bucket"
+  type        = string
+  default     = ""
+}
+
+variable "remotely_save_s3_endpoint" {
+  description = "Obsidian Remotely Save S3 endpoint"
+  type        = string
+  default     = ""
+}
+
+variable "remotely_save_s3_region" {
+  description = "Obsidian Remotely Save S3 region"
+  type        = string
+  default     = "auto"
+}
+
+variable "remotely_save_remote_prefix" {
+  description = "Optional Obsidian Remotely Save remote prefix"
+  type        = string
+  default     = ""
+}
+
+variable "resend_api_key" {
+  description = "Resend API key for email tooling"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "mailgun_api_key" {
+  description = "Mailgun API key for email tooling"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_access_key_id" {
+  description = "AWS access key ID for SES/S3/email tooling"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_secret_access_key" {
+  description = "AWS secret access key for SES/S3/email tooling"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 # =============================================================================
@@ -102,6 +273,20 @@ provider "docker" {
 data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
+
+data "coder_parameter" "bootstrap" {
+  for_each = local.bootstrap_parameters
+
+  name         = each.key
+  display_name = each.value.display_name
+  description  = each.value.description
+  type         = "string"
+  form_type    = each.value.form_type
+  mutable      = true
+  default      = each.value.default
+  order        = each.value.order
+  styling      = each.value.mask ? jsonencode({ mask_input = true }) : jsonencode({})
+}
 
 # =============================================================================
 # External Auth
@@ -133,9 +318,8 @@ resource "coder_agent" "main" {
       GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
       GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
 
-      EXTENSIONS_GALLERY = "{\"serviceUrl\":\"https://marketplace.visualstudio.com/_apis/public/gallery\"}"
     },
-    var.claude_code_api_key != "" ? { ANTHROPIC_API_KEY = var.claude_code_api_key } : {}
+    local.bootstrap_env
   )
 
   metadata {
@@ -181,11 +365,11 @@ resource "coder_agent" "main" {
   metadata {
     display_name = "Load Average (Host)"
     key          = "6_load_host"
-    script   = <<EOT
+    script       = <<EOT
       echo "`cat /proc/loadavg | awk '{ print $1 }'` `nproc`" | awk '{ printf "%0.2f", $1/$2 }'
     EOT
-    interval = 60
-    timeout  = 1
+    interval     = 60
+    timeout      = 1
   }
 
   metadata {
@@ -220,6 +404,15 @@ resource "coder_script" "tools_shell" {
   script             = file("${path.module}/scripts/tools-shell.sh")
 }
 
+resource "coder_script" "tmux_theme_sync" {
+  agent_id           = coder_agent.main.id
+  display_name       = "Tmux Theme Sync"
+  icon               = "/icon/terminal.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = file("${path.module}/scripts/tmux-theme-sync.sh")
+}
+
 resource "coder_script" "tools_node" {
   agent_id           = coder_agent.main.id
   display_name       = "Node.js Package Managers"
@@ -227,15 +420,6 @@ resource "coder_script" "tools_node" {
   run_on_start       = true
   start_blocks_login = true
   script             = file("${path.module}/scripts/tools-node.sh")
-}
-
-resource "coder_script" "tools_web3" {
-  agent_id           = coder_agent.main.id
-  display_name       = "Web3 Tools"
-  icon               = "/icon/terminal.svg"
-  run_on_start       = true
-  start_blocks_login = true
-  script             = file("${path.module}/scripts/tools-web3.sh")
 }
 
 resource "coder_script" "tools_ci" {
@@ -249,15 +433,6 @@ resource "coder_script" "tools_ci" {
   })
 }
 
-resource "coder_script" "projects_bootstrap" {
-  agent_id           = coder_agent.main.id
-  display_name       = "Project Bootstrap"
-  icon               = "/icon/git.svg"
-  run_on_start       = true
-  start_blocks_login = false
-  script             = file("${path.module}/scripts/projects-bootstrap.sh")
-}
-
 resource "coder_script" "vault_github_backup" {
   agent_id           = coder_agent.main.id
   display_name       = "Vault GitHub Backup"
@@ -267,22 +442,9 @@ resource "coder_script" "vault_github_backup" {
   script             = file("${path.module}/scripts/vault-github-backup-loop.sh")
 }
 
-resource "coder_script" "tools_ai" {
-  agent_id           = coder_agent.main.id
-  display_name       = "AI Tools"
-  icon               = "/icon/terminal.svg"
-  run_on_start       = true
-  start_blocks_login = true
-  script = templatefile("${path.module}/scripts/tools-ai.sh", {
-    pi_api_key  = var.pi_api_key
-    pi_provider = var.pi_provider
-    pi_model    = var.pi_model
-  })
-}
-
 resource "coder_script" "codex_usage_guard" {
   agent_id           = coder_agent.main.id
-  display_name       = "Codex & Puzzle Guards"
+  display_name       = "Codex Usage Guard"
   icon               = "/icon/terminal.svg"
   run_on_start       = true
   start_blocks_login = false
@@ -294,30 +456,7 @@ resource "coder_script" "codex_usage_guard" {
 ${file("${path.module}/scripts/codex-usage-guard.py")}
 PY
     chmod +x "$HOME/.local/bin/codex-usage-guard"
-    cat > "$HOME/.local/bin/puzzle-swarm" <<'PY'
-${file("${path.module}/scripts/puzzle-swarm.py")}
-PY
-    chmod +x "$HOME/.local/bin/puzzle-swarm"
-    mkdir -p "$HOME/bin" "$HOME/.ssh" "$HOME/.config/puzzle-swarm"
-    chmod 700 "$HOME/.ssh"
-    cat > "$HOME/bin/seedchecker-mcp" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-KEY="$${SEEDCHECKER_SSH_KEY:-$HOME/.ssh/can-new.pem}"
-TARGET="$${SEEDCHECKER_CPU_SSH_TARGET:-ubuntu@ec2-3-71-229-195.eu-central-1.compute.amazonaws.com}"
-exec ssh \
-  -i "$KEY" \
-  -o StrictHostKeyChecking=accept-new \
-  -o ServerAliveInterval=30 \
-  -o ServerAliveCountMax=6 \
-  "$TARGET" \
-  'cd /home/ubuntu/seed-checker && exec venv/bin/python scripts/seedchecker_mcp_stdio.py --allowed-roots "/home/ubuntu/seedchecker-mcp-inputs,/home/ubuntu/100sats-seedlists,/home/ubuntu/seed-checker/outputs,/tmp"'
-SH
-    chmod +x "$HOME/bin/seedchecker-mcp"
-    cat > "$HOME/.config/puzzle-swarm/mcp.json" <<'JSON'
-{"mcpServers":{"seedchecker":{"command":"/home/coder/bin/seedchecker-mcp","args":[]}}}
-JSON
-    echo "Installed codex-usage-guard, puzzle-swarm, and seedchecker MCP launcher"
+    echo "Installed codex-usage-guard"
   EOT
 }
 
@@ -339,31 +478,13 @@ resource "coder_script" "obsidian_serve" {
   script             = file("${path.module}/scripts/obsidian-serve.sh")
 }
 
-resource "coder_script" "openclaw_install" {
+resource "coder_script" "vault_guard" {
   agent_id           = coder_agent.main.id
-  display_name       = "OpenClaw Install"
-  icon               = "/icon/terminal.svg"
+  display_name       = "Vault Guard"
+  icon               = "/icon/folder.svg"
   run_on_start       = true
   start_blocks_login = false
-  script             = file("${path.module}/scripts/openclaw-install.sh")
-}
-
-resource "coder_script" "openclaw_gateway" {
-  agent_id           = coder_agent.main.id
-  display_name       = "OpenClaw Gateway"
-  icon               = "/icon/terminal.svg"
-  run_on_start       = true
-  start_blocks_login = false
-  script             = file("${path.module}/scripts/openclaw-gateway-serve.sh")
-}
-
-resource "coder_script" "workspace_r2_raw_backup" {
-  agent_id           = coder_agent.main.id
-  display_name       = "Workspace R2 Raw Backup"
-  icon               = "/icon/database.svg"
-  run_on_start       = true
-  start_blocks_login = false
-  script             = file("${path.module}/scripts/workspace-r2-raw-backup-loop.sh")
+  script             = file("${path.module}/scripts/vault-guard.sh")
 }
 
 resource "coder_script" "ttyd_serve" {
@@ -384,161 +505,13 @@ resource "coder_script" "optimize_runtime" {
   script             = file("${path.module}/scripts/optimize-runtime.sh")
 }
 
-resource "coder_script" "discord_bot" {
+resource "coder_script" "nomarh_ops_toolkit" {
   agent_id           = coder_agent.main.id
-  display_name       = "Discord Bot"
+  display_name       = "Nomarh Ops Toolkit"
   icon               = "/icon/terminal.svg"
   run_on_start       = true
   start_blocks_login = false
-  script             = file("${path.module}/scripts/discord-bot-serve.sh")
-}
-
-# =============================================================================
-# VS Code Server
-# =============================================================================
-
-module "code-server" {
-  count   = data.coder_workspace.me.start_count
-  source  = "registry.coder.com/modules/code-server/coder"
-  version = "1.2.0"
-
-  agent_id              = coder_agent.main.id
-  order                 = 1
-  subdomain             = true
-  use_cached_extensions = true
-
-  extensions = [
-    "binary-ink.dark-modern-oled-theme-set",
-    "pkief.material-icon-theme",
-    "prisma.prisma",
-    "graphql.vscode-graphql",
-    "graphql.vscode-graphql-syntax",
-    "bradlc.vscode-tailwindcss",
-    "tintinweb.vscode-solidity-language",
-    "nomicfoundation.hardhat-solidity",
-    "esbenp.prettier-vscode",
-    "eamodio.gitlens",
-    "oderwat.indent-rainbow",
-    "gruntfuggly.todo-tree",
-    "pflannery.vscode-versionlens",
-    "ms-vsliveshare.vsliveshare",
-    "hashicorp.terraform",
-    "ms-azuretools.vscode-docker",
-    "cweijan.vscode-postgresql-client2",
-    "usernamehw.errorlens",
-    "streetsidesoftware.code-spell-checker",
-    "wayou.vscode-todo-highlight",
-  ]
-
-  settings = {
-    # Solidity
-    "[solidity]" : {
-      "editor.defaultFormatter" : "esbenp.prettier-vscode",
-      "editor.formatOnSave" : true
-    },
-    "solidity.telemetry" : false,
-
-    # Editor
-    "editor.defaultFormatter" : "esbenp.prettier-vscode",
-    "editor.fontFamily" : "Fira Code",
-    "editor.fontLigatures" : true,
-    "editor.formatOnSave" : true,
-    "editor.wordWrap" : "on",
-    "editor.inlineSuggest.enabled" : true,
-    "editor.bracketPairColorization.enabled" : true,
-    "editor.guides.bracketPairs" : true,
-    "editor.minimap.enabled" : false,
-    "editor.stickyScroll.enabled" : true,
-    "editor.tabSize" : 2,
-
-    # Files
-    "files.autoSave" : "off",
-    "files.watcherExclude" : {
-      "**/.git/objects/**" : true,
-      "**/.git/subtree-cache/**" : true,
-      "**/node_modules/**" : true,
-      "**/.hg/store/**" : true,
-      "**/dist/**" : true,
-      "**/build/**" : true,
-      "**/.next/**" : true,
-      "**/out/**" : true,
-    },
-
-    # Git
-    "git.confirmSync" : false,
-    "git.autofetch" : true,
-    "git.enableSmartCommit" : true,
-
-    # Terminal
-    "terminal.integrated.scrollback" : 10000,
-    "terminal.integrated.defaultProfile.linux" : "zsh",
-    "terminal.integrated.fontSize" : 14,
-
-    # Workbench
-    "workbench.colorTheme" : "Dark Modern (OLED Black) [Orange]",
-    "workbench.iconTheme" : "material-icon-theme",
-
-    # Explorer
-    "explorer.confirmDelete" : false,
-    "explorer.confirmDragAndDrop" : false,
-
-    # Docker
-    "docker.showStartPage" : false,
-  }
-}
-
-# =============================================================================
-# OpenCode
-# =============================================================================
-
-resource "coder_script" "opencode_install" {
-  agent_id           = coder_agent.main.id
-  display_name       = "OpenCode Install"
-  icon               = "/icon/opencode.svg"
-  run_on_start       = true
-  start_blocks_login = true
-  script = templatefile("${path.module}/scripts/opencode-install.sh", {
-    opencode_config_json = var.opencode_config_json != "" ? var.opencode_config_json : jsonencode({
-      "$schema" = "https://opencode.ai/config.json"
-      permission = {
-        skill = {
-          "*"              = "allow"
-          "pr-review"      = "allow"
-          "internal-*"     = "deny"
-          "experimental-*" = "ask"
-        }
-      }
-      model = var.opencode_model
-    })
-  })
-}
-
-resource "coder_app" "opencode_terminal" {
-  agent_id     = coder_agent.main.id
-  slug         = "opencode-terminal"
-  display_name = "OpenCode"
-  icon         = "/icon/opencode.svg"
-  command      = "bash -l -c 'export PATH=\"$HOME/.opencode/bin:$PATH\" && opencode'"
-  share        = "owner"
-}
-
-resource "coder_app" "opencode_ui" {
-  agent_id     = coder_agent.main.id
-  slug         = "opencode-ui"
-  display_name = "OpenCode UI"
-  url          = "http://localhost:62748"
-  icon         = "/icon/opencode.svg"
-  subdomain    = true
-  share        = "owner"
-}
-
-resource "coder_script" "opencode_serve" {
-  agent_id           = coder_agent.main.id
-  display_name       = "OpenCode Serve"
-  icon               = "/icon/opencode.svg"
-  run_on_start       = true
-  start_blocks_login = false
-  script             = file("${path.module}/scripts/opencode-serve.sh")
+  script             = file("${path.module}/scripts/nomarh-ops-toolkit.sh")
 }
 
 # =============================================================================
@@ -552,7 +525,7 @@ resource "coder_script" "claude_code_install" {
   run_on_start       = true
   start_blocks_login = true
   script = templatefile("${path.module}/scripts/claude-install.sh", {
-    claude_api_key = var.claude_code_api_key
+    claude_api_key = local.claude_code_api_key_value
   })
 }
 
@@ -565,25 +538,12 @@ resource "coder_app" "claude_code" {
   share        = "owner"
 }
 
-# =============================================================================
-# Pi Coding Agent
-# =============================================================================
-
-resource "coder_app" "pi" {
+resource "coder_app" "nomarh_ops" {
   agent_id     = coder_agent.main.id
-  slug         = "pi"
-  display_name = "Pi Agent"
+  slug         = "nomarh-ops"
+  display_name = "Nomarh Operator"
   icon         = "/icon/terminal.svg"
-  command      = "bash -l -c 'export PATH=\"$HOME/.local/bin:$PATH\" && pi'"
-  share        = "owner"
-}
-
-resource "coder_app" "gsd" {
-  agent_id     = coder_agent.main.id
-  slug         = "gsd"
-  display_name = "GSD"
-  icon         = "/icon/terminal.svg"
-  command      = "bash -l -c 'export PATH=\"$HOME/.local/bin:$PATH\" && gsd'"
+  command      = "bash -l -c 'can-morning || true; exec bash -l'"
   share        = "owner"
 }
 
@@ -614,22 +574,11 @@ resource "coder_app" "obsidian_vnc" {
   display_name = "Obsidian VNC"
   icon         = "/icon/folder.svg"
   # noVNC + websockify bridge serves the VNC GUI over HTTP at 6080.
-  # subdomain=true so Coder routes via wildcard host (works with WebSockets,
-  # which path-based proxying mangles). Requires CODER_WILDCARD_ACCESS_URL
-  # set on the Coder server (e.g. *.dev.bmu.one).
+  # Use path-based routing so the app works through coder.nomarh.com without
+  # a separate wildcard app domain.
   url       = "http://localhost:6080/"
-  subdomain = true
+  subdomain = false
   share     = "owner"
-}
-
-resource "coder_app" "openclaw_gateway" {
-  agent_id     = coder_agent.main.id
-  slug         = "openclaw"
-  display_name = "OpenClaw"
-  icon         = "/icon/terminal.svg"
-  url          = "http://localhost:18789"
-  subdomain    = true
-  share        = "owner"
 }
 
 # Browser-accessible tmux session picker (ttyd on :7681).
@@ -639,19 +588,8 @@ resource "coder_app" "tmux_picker" {
   display_name = "Tmux"
   icon         = "/icon/terminal.svg"
   url          = "http://localhost:7681"
-  subdomain    = true
+  subdomain    = false
   share        = "owner"
-}
-
-# =============================================================================
-# File Browser
-# =============================================================================
-
-module "filebrowser" {
-  count    = data.coder_workspace.me.start_count
-  source   = "registry.coder.com/coder/filebrowser/coder"
-  version  = "1.1.2"
-  agent_id = coder_agent.main.id
 }
 
 # =============================================================================
@@ -738,7 +676,10 @@ resource "docker_image" "main" {
     context = "."
   }
   triggers = {
-    dir_sha1 = sha1(join("", [for f in fileset(path.module, "Dockerfile") : filesha1(f)]))
+    dir_sha1 = sha1(join("", [
+      for f in sort(tolist(setunion(fileset(path.module, "Dockerfile"), fileset(path.module, "scripts/**")))) :
+      filesha1("${path.module}/${f}")
+    ]))
   }
 }
 
@@ -748,7 +689,7 @@ resource "docker_container" "workspace" {
   name     = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
   hostname = data.coder_workspace.me.name
 
-  entrypoint = ["sh", "-c", replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")]
+  entrypoint = ["sh", "-c", local.coder_agent_init_script]
   env        = ["CODER_AGENT_TOKEN=${coder_agent.main.token}"]
 
   host {
@@ -756,18 +697,18 @@ resource "docker_container" "workspace" {
     ip   = "host-gateway"
   }
 
-  # Resource limits: 12GB RAM, 20GB swap (32GB total), 6 CPU cores
-  memory      = 12288
-  memory_swap = 32768
+  # Resource limits: 24GB RAM, 24GB swap (48GB total), 6 CPU cores
+  memory      = 24576
+  memory_swap = 49152
   cpu_shares  = 6144
 
-  # tmpfs /tmp — build artifacts and scratch files stay in RAM (capped at 2GB),
+  # tmpfs /tmp — build artifacts and scratch files stay in RAM (capped at 4GB),
   # auto-cleared on container restart. Stops /tmp from filling the home volume
   # over months of use. `exec` is required because the Coder agent script
   # downloads its binary into /tmp and runs it; Docker tmpfs mounts default
   # to noexec which blocks that.
   tmpfs = {
-    "/tmp" = "size=2g,mode=1777,exec"
+    "/tmp" = "size=4g,mode=1777,exec"
   }
 
   # seccomp=unconfined relaxes the Docker default seccomp profile. Required

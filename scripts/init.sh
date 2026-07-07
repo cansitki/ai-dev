@@ -32,15 +32,12 @@ if [ ! -f ~/.workspace_initialized ]; then
 
 ### AI-Assisted Development
 - **Claude Code**: `claude` in terminal or use the web app
-- **OpenCode**: `opencode` in terminal or use the web UI
-- **Pi**: `pi` in terminal
-- **GSD2 (Pi)**: `/gsd help` inside Pi, or `gsd` / `gsd-pi` in terminal
+- **Codex CLI**: `codex` in terminal
 
 ### Available Tools & Versions
 - **Node.js**: v24 (default), also available: 18, 20, 22
 - **Package Managers**: PNPM, Yarn, Bun
 - **Docker & Docker Compose**: Latest
-- **Foundry**: Ethereum development toolkit
 - **act**: Run GitHub Actions locally
 
 ### Shell
@@ -53,9 +50,7 @@ if [ ! -f ~/.workspace_initialized ]; then
 ```bash
 # AI Agents
 claude                       # Start Claude Code
-opencode                     # Start OpenCode
-pi                           # Start Pi coding agent
-gsd                          # Start GSD2 / gsd-pi
+codex                        # Start Codex CLI
 
 # Docker
 docker ps                    # List running containers
@@ -87,7 +82,7 @@ EOFREADME
 fi
 
 # Ensure tools are on PATH (prepend without overriding agent PATH)
-export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.local/share/pnpm:$HOME/.bun/bin:$HOME/.foundry/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.bun/bin:$PATH"
 
 # Per-start initialization
 echo "Starting workspace services..."
@@ -107,7 +102,7 @@ echo ""
 # Obsidian vault + CLI setup
 # Obsidian Desktop runs inside the workspace. The canonical vault path is
 # ~/Can, with ~/vault kept as a compatibility symlink by obsidian-serve.sh.
-VAULT_DIR="${OBSIDIAN_VAULT_DIR:-$HOME/Can}"
+VAULT_DIR="$${OBSIDIAN_VAULT_DIR:-$HOME/Can}"
 if [ -d "$VAULT_DIR" ]; then
   echo "Obsidian vault available at $VAULT_DIR"
 

@@ -56,11 +56,6 @@ disabled = true
 STARSHIPEOF
 fi
 
-# Remove Oh My Zsh git plugin aliases that conflict with our tools
-# Place in custom/ dir so it loads AFTER plugins (including git plugin)
-mkdir -p "$HOME/.oh-my-zsh/custom"
-echo 'unalias gsd 2>/dev/null' > "$HOME/.oh-my-zsh/custom/unalias-gsd.zsh"
-
 # Append shell config only if not already present (idempotency guard)
 if ! grep -q '# Custom aliases' "$HOME/.zshrc" 2>/dev/null; then
   cat >> $HOME/.zshrc << 'ZSHEOF'
@@ -74,6 +69,19 @@ alias gp="git pull"
 alias gc="git commit"
 alias gco="git checkout"
 alias ll="ls -lah"
+alias tlist="tmux-theme"
+alias tlight="tmux-theme light"
+alias tdark="tmux-theme dark"
+alias codex-theme="tmux-theme"
+alias tsync-on="tmux-theme-sync-enable"
+alias tsync-off="tmux-theme-sync-disable"
+alias ops="nomarh-ops --refresh"
+alias operator="nomarh-operator-card --refresh"
+alias morning="can-morning"
+alias daily-start="can-morning"
+alias ops-brief="sed -n '1,220p' ~/.local/state/can-ops-brief/brief.md"
+alias ops-summary="sed -n '1,220p' ~/.local/state/nomarh-ops/summary.md"
+alias ops-card="sed -n '1,220p' ~/.local/state/nomarh-operator-card/card.md"
 
 # Direnv hook
 eval "$(direnv hook zsh)"

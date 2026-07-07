@@ -142,6 +142,11 @@ RUN userdel -r ubuntu \
 USER coder
 WORKDIR /home/coder
 
+# Keep template helper scripts available at runtime. Coder executes individual
+# startup scripts from temporary files, so sibling Python/helper files are not
+# otherwise available to those scripts.
+COPY --chown=coder:coder scripts /opt/ai-dev-template/scripts
+
 # Create common directories
 RUN mkdir -p ~/projects ~/bin ~/.config ~/.ssh ~/.local/bin
 
@@ -153,7 +158,7 @@ RUN git config --global init.defaultBranch main \
 # Setup .zshenv for PATH and env vars (survives Oh My Zsh .zshrc replacement)
 # .zshenv is sourced by ALL zsh invocations (interactive, non-interactive, login, non-login)
 RUN echo '# Tool PATH (set in .zshenv so it survives Oh My Zsh .zshrc replacement)' > ~/.zshenv \
-    && echo 'export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.local/share/pnpm:$HOME/.bun/bin:$HOME/.foundry/bin:$HOME/bin:$PATH"' >> ~/.zshenv \
+    && echo 'export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.bun/bin:$HOME/bin:$PATH"' >> ~/.zshenv \
     && echo '' >> ~/.zshenv \
     && echo '# PostgreSQL' >> ~/.zshenv \
     && echo 'export PGHOST=localhost' >> ~/.zshenv \
@@ -161,6 +166,6 @@ RUN echo '# Tool PATH (set in .zshenv so it survives Oh My Zsh .zshrc replacemen
     && echo 'export PGDATABASE=coder' >> ~/.zshenv
 
 # Add PATH to .bashrc and .profile for bash -l commands (coder_app launchers)
-RUN TOOL_PATH='export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.local/share/pnpm:$HOME/.bun/bin:$HOME/.foundry/bin:$PATH"' \
+RUN TOOL_PATH='export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.bun/bin:$PATH"' \
     && echo "$TOOL_PATH" >> ~/.bashrc \
     && echo "$TOOL_PATH" >> ~/.profile

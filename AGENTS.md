@@ -1,0 +1,1 @@
+/home/coder/Can/AGENTS.md

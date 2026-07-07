@@ -48,11 +48,12 @@ install_if_missing "GitHub CLI" "gh" "" '
   sudo apt-get install gh -y
 '
 
-# Configure GitHub CLI authentication using Coder external auth token
-if command_exists gh && [ -n "${github_token}" ]; then
+# Configure GitHub CLI authentication using the workspace GitHub token.
+github_auth_token="$${GH_TOKEN:-$${GITHUB_TOKEN:-}}"
+if command_exists gh && [ -n "$github_auth_token" ]; then
   if ! gh auth status &>/dev/null; then
     printf "$${BOLD}Configuring GitHub CLI authentication...$${RESET}\n"
-    echo "${github_token}" | gh auth login --with-token
+    echo "$github_auth_token" | gh auth login --with-token
     printf "$${GREEN}[ok] GitHub CLI authenticated$${RESET}\n\n"
   else
     printf "$${GREEN}[ok] GitHub CLI already authenticated$${RESET}\n\n"

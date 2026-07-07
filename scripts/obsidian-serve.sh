@@ -11,6 +11,7 @@
 # rebuilds.
 
 set -e
+export TZ="${TZ:-Europe/Bucharest}"
 
 BOLD='\033[0;1m'
 GREEN='\033[0;32m'
@@ -25,10 +26,45 @@ OBSIDIAN_BIN=/opt/Obsidian/obsidian
 VAULT_DIR="${OBSIDIAN_VAULT_DIR:-$HOME/Can}"
 VAULT_LINK="$HOME/vault"
 OBSIDIAN_RUNNER="$HOME/.local/bin/obsidian-headless-loop"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE_SCRIPT_DIR="${NOMARH_TEMPLATE_SCRIPTS_DIR:-/opt/ai-dev-template/scripts}"
+OBSIDIAN_CLI="$HOME/.local/bin/obsidian"
+OBSIDIAN_IPC="$HOME/.local/bin/obsidian-ipc"
+OBSIDIAN_FLUSHER="$HOME/.local/bin/obsidian-flush-spool"
+OBSIDIAN_TMP_DIR="$HOME/.cache/obsidian-tmp"
 
 mkdir -p "$HOME/.config/obsidian"
 mkdir -p "$HOME/.local/bin"
 mkdir -p "$VAULT_DIR"
+mkdir -p "$OBSIDIAN_TMP_DIR"
+chmod 700 "$OBSIDIAN_TMP_DIR" 2>/dev/null || true
+
+# Keep the raw IPC client available as obsidian-ipc, then put a wrapper at
+# ~/.local/bin/obsidian so final daily logging cannot falsely fail completed
+# agent tasks if Obsidian Desktop crashes while acknowledging the append.
+if [ -x "$OBSIDIAN_CLI" ] && ! grep -q "obsidian-flush-spool" "$OBSIDIAN_CLI" 2>/dev/null; then
+    if [ ! -e "$OBSIDIAN_IPC" ]; then
+        mv "$OBSIDIAN_CLI" "$OBSIDIAN_IPC"
+        chmod 0755 "$OBSIDIAN_IPC"
+    fi
+fi
+template_file() {
+    if [ -f "$SCRIPT_DIR/$1" ]; then
+        printf '%s\n' "$SCRIPT_DIR/$1"
+    elif [ -f "$TEMPLATE_SCRIPT_DIR/$1" ]; then
+        printf '%s\n' "$TEMPLATE_SCRIPT_DIR/$1"
+    fi
+}
+
+OBSIDIAN_WRAPPER_SRC="$(template_file obsidian-wrapper.sh || true)"
+OBSIDIAN_FLUSHER_SRC="$(template_file obsidian-flush-spool.py || true)"
+
+if [ -n "$OBSIDIAN_WRAPPER_SRC" ]; then
+    install -m 0755 "$OBSIDIAN_WRAPPER_SRC" "$OBSIDIAN_CLI"
+fi
+if [ -n "$OBSIDIAN_FLUSHER_SRC" ]; then
+    install -m 0755 "$OBSIDIAN_FLUSHER_SRC" "$OBSIDIAN_FLUSHER"
+fi
 
 # Keep ~/vault as the convention alias, but do not destroy a real vault if a
 # future workspace has mounted or restored one there.
@@ -78,16 +114,78 @@ fi
 if ! obsidian_running; then
     echo -e "${BOLD}Starting Obsidian (headless)${NC}"
     rm -f "$HOME/.obsidian-cli.sock"
-    cat > "$OBSIDIAN_RUNNER" <<EOF
+cat > "$OBSIDIAN_RUNNER" <<EOF
 #!/bin/bash
 source "$HOME/.dbus-env" 2>/dev/null || true
+export TZ="${TZ:-Europe/Bucharest}"
 export DISPLAY=":${DISPLAY_NUM}"
+export ELECTRON_DISABLE_GPU=1
+export TMPDIR="$OBSIDIAN_TMP_DIR"
+mkdir -p "$TMPDIR"
+chmod 700 "$TMPDIR" 2>/dev/null || true
+OBSIDIAN_BIN="$OBSIDIAN_BIN"
+OBSIDIAN_CLI="$HOME/.local/bin/obsidian-ipc"
+OBSIDIAN_LOG="$HOME/.config/obsidian/obsidian.log"
+OBSIDIAN_SOCKET="$HOME/.obsidian-cli.sock"
+VAULT_DIR="$VAULT_DIR"
+
+flush_loop() {
+    while true; do
+        "$HOME/.local/bin/obsidian-flush-spool" --quiet --max-items 50 >/dev/null 2>&1 || true
+        sleep 60
+    done
+}
+
+health_loop() {
+    failures=0
+    sleep 45
+    while true; do
+        sleep 30
+        app_pid="\$(pgrep -u "\$(id -un)" -f "^\${OBSIDIAN_BIN} .* \${VAULT_DIR}\$" | head -n 1 || true)"
+        if [ -z "\$app_pid" ]; then
+            failures=0
+            continue
+        fi
+        if timeout 8s "\$OBSIDIAN_CLI" files total >/dev/null 2>&1; then
+            failures=0
+            continue
+        fi
+        failures=\$((failures + 1))
+        printf '[%s] Obsidian IPC health check failed (%s/2); app pid %s\n' "\$(date -Is)" "\$failures" "\$app_pid" >> "\$OBSIDIAN_LOG"
+        if [ "\$failures" -ge 2 ]; then
+            printf '[%s] Obsidian IPC is wedged; restarting app pid %s\n' "\$(date -Is)" "\$app_pid" >> "\$OBSIDIAN_LOG"
+            pkill -TERM -P "\$app_pid" 2>/dev/null || true
+            kill -TERM "\$app_pid" 2>/dev/null || true
+            sleep 5
+            pkill -KILL -P "\$app_pid" 2>/dev/null || true
+            kill -KILL "\$app_pid" 2>/dev/null || true
+            rm -f "\$OBSIDIAN_SOCKET"
+            failures=0
+            sleep 20
+        fi
+    done
+}
+
+flush_loop &
+flush_loop_pid=\$!
+health_loop &
+health_loop_pid=\$!
+trap 'kill "\$flush_loop_pid" "\$health_loop_pid" 2>/dev/null || true' EXIT
 
 while true; do
-    rm -f "$HOME/.obsidian-cli.sock"
-    "$OBSIDIAN_BIN" --no-sandbox --disable-gpu "$VAULT_DIR" >> "$HOME/.config/obsidian/obsidian.log" 2>&1
+    rm -f "\$OBSIDIAN_SOCKET"
+    "\$OBSIDIAN_BIN" \\
+        --no-sandbox \\
+        --disable-gpu \\
+        --disable-gpu-sandbox \\
+        --disable-dev-shm-usage \\
+        --disable-gpu-compositing \\
+        --disable-renderer-backgrounding \\
+        --disable-background-timer-throttling \\
+        --disable-features=VizDisplayCompositor \\
+        "\$VAULT_DIR" >> "\$OBSIDIAN_LOG" 2>&1
     status=\$?
-    printf '[%s] Obsidian exited with status %s; restarting in 5s\n' "\$(date -Is)" "\$status" >> "$HOME/.config/obsidian/obsidian.log"
+    printf '[%s] Obsidian exited with status %s; restarting in 5s\n' "\$(date -Is)" "\$status" >> "\$OBSIDIAN_LOG"
     sleep 5
 done
 EOF

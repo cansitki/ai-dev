@@ -11,7 +11,12 @@ PICKER="${HOME}/.local/bin/tmux-picker"
 mkdir -p "${HOME}/.local/bin"
 
 # Install picker script if missing or older than the template copy
-TEMPLATE_PICKER="$(dirname "$0")/tmux-picker"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE_SCRIPT_DIR="${NOMARH_TEMPLATE_SCRIPTS_DIR:-/opt/ai-dev-template/scripts}"
+TEMPLATE_PICKER="$SCRIPT_DIR/tmux-picker"
+if [ ! -f "$TEMPLATE_PICKER" ] && [ -f "$TEMPLATE_SCRIPT_DIR/tmux-picker" ]; then
+  TEMPLATE_PICKER="$TEMPLATE_SCRIPT_DIR/tmux-picker"
+fi
 if [ -f "$TEMPLATE_PICKER" ]; then
   cp "$TEMPLATE_PICKER" "$PICKER"
   chmod +x "$PICKER"
