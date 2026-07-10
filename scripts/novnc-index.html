@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Obsidian VNC</title>
+<script>
+(() => {
+    let prefix = window.location.pathname;
+    if (prefix.endsWith('/index.html')) {
+        prefix = prefix.slice(0, -'index.html'.length);
+    } else if (!prefix.endsWith('/')) {
+        prefix += '/';
+    }
+
+    const next = new URL(window.location.href);
+    next.pathname = prefix + 'vnc.html';
+    next.search = '';
+    next.hash = '';
+    next.searchParams.set('autoconnect', '1');
+    next.searchParams.set('resize', 'scale');
+    next.searchParams.set('host', window.location.hostname);
+    next.searchParams.set(
+        'port',
+        window.location.port || (window.location.protocol === 'https:' ? '443' : '80'),
+    );
+    next.searchParams.set('encrypt', window.location.protocol === 'https:' ? '1' : '0');
+    next.searchParams.set('path', prefix.replace(/^\/+/, '') + 'websockify');
+    window.location.replace(next.toString());
+})();
+</script>
+<p>Connecting to Obsidian…</p>

@@ -173,8 +173,8 @@ export TZ="${TZ:-Europe/Bucharest}"
 export DISPLAY=":${DISPLAY_NUM}"
 export ELECTRON_DISABLE_GPU=1
 export TMPDIR="$OBSIDIAN_TMP_DIR"
-mkdir -p "$TMPDIR"
-chmod 700 "$TMPDIR" 2>/dev/null || true
+mkdir -p "\$TMPDIR"
+chmod 700 "\$TMPDIR" 2>/dev/null || true
 OBSIDIAN_BIN="$OBSIDIAN_BIN"
 OBSIDIAN_CLI="$HOME/.local/bin/obsidian-ipc"
 OBSIDIAN_LOG="$HOME/.config/obsidian/obsidian.log"
@@ -244,6 +244,7 @@ EOF
     chmod +x "$OBSIDIAN_RUNNER"
     tmux kill-session -t "${OBSIDIAN_SESSION}" 2>/dev/null || true
     tmux new-session -d -s "${OBSIDIAN_SESSION}" "$OBSIDIAN_RUNNER"
+    tmux set-option -t "${OBSIDIAN_SESSION}" @nomarh_scope system
     for _ in {1..10}; do
         if obsidian_running; then
             break
@@ -259,6 +260,10 @@ EOF
     fi
 fi
 
+if tmux has-session -t "${OBSIDIAN_SESSION}" 2>/dev/null; then
+    tmux set-option -t "${OBSIDIAN_SESSION}" @nomarh_scope system
+fi
+
 # --- VNC bridge for one-time GUI access (login to Obsidian Sync) ---
 if ! pgrep -f "x11vnc.*:${DISPLAY_NUM}" > /dev/null; then
     echo -e "${BOLD}Starting x11vnc on port ${VNC_PORT}${NC}"
@@ -272,6 +277,7 @@ if ! tmux has-session -t novnc 2>/dev/null; then
     echo -e "${BOLD}Starting noVNC bridge on port ${NOVNC_PORT}${NC}"
     tmux new-session -d -s novnc "websockify --web=/usr/share/novnc ${NOVNC_PORT} localhost:${VNC_PORT}"
 fi
+tmux set-option -t novnc @nomarh_scope system
 
 # --- Source D-Bus env into login shells so `obsidian` CLI works ---
 if ! grep -q "obsidian dbus env" "$HOME/.zshenv" 2>/dev/null; then
