@@ -60,6 +60,13 @@ sessions, and plugin settings. No secret values were copied here.
   The poller starts when `tmux_theme_sync_url` and `tmux_theme_sync_token` are
   present and `tmux_theme_sync_enabled` is true. Use `tmux-theme-sync-disable`
   or alias `tsync-off` for a workspace that should not follow the shared theme.
+  Missing/invalid local state is repaired to dark at startup, state writes are
+  atomic, and an empty template token does not replace an existing nonempty
+  token. The poller tmux session is marked as system-scoped. `tlist` remains
+  reserved for the Nomarh tmux session picker.
+  If the optional Codex theme manager exists, startup repairs its dark state
+  and managed wrapper and verifies the active release; failure warns without
+  blocking the workspace startup path.
 - Installs the Nomarh daily operations CLI set into `~/.local/bin`, including
   `nomarh-ops`, `can-doctor`, backup/restore gates, mail gate, tmux cleanup,
   migration checks, guarded action tools, and `can-morning` as the one-command

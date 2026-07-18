@@ -56,6 +56,10 @@ disabled = true
 STARSHIPEOF
 fi
 
+# tlist is the Nomarh tmux session picker, not a theme shortcut. Remove the
+# legacy alias from persistent homes upgraded from an older template.
+sed -i '/^alias tlist="tmux-theme"$/d' "$HOME/.zshrc" 2>/dev/null || true
+
 # Append shell config only if not already present (idempotency guard)
 if ! grep -q '# Custom aliases' "$HOME/.zshrc" 2>/dev/null; then
   cat >> $HOME/.zshrc << 'ZSHEOF'
@@ -69,7 +73,6 @@ alias gp="git pull"
 alias gc="git commit"
 alias gco="git checkout"
 alias ll="ls -lah"
-alias tlist="tmux-theme"
 alias tlight="tmux-theme light"
 alias tdark="tmux-theme dark"
 alias codex-theme="tmux-theme"

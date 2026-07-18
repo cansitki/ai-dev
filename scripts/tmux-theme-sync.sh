@@ -7,8 +7,8 @@ mkdir -p "$HOME/.local/bin" "$HOME/.config/tmux-theme-sync" "$HOME/.codex"
 
 cat > "$HOME/.config/tmux-theme-sync/source" <<'EOF'
 repo=cansitki/tmux-theme-sync
-baseline_commit=cd7d12c
-baseline_subject=Redraw Codex panes after tmux theme changes
+baseline_commit=be7cae0
+baseline_subject=Protect patched Codex theme releases
 runtime=ai-dev-template-hardened
 EOF
 
@@ -21,7 +21,7 @@ codex_config_file="${CODEX_CONFIG_FILE:-$HOME/.codex/config.toml}"
 
 usage() {
   cat <<'EOF'
-Usage: tmux-theme light|dark|off|status|check [mode]
+Usage: tmux-theme light|dark|off|reapply|status|check [mode]
 
 Switches tmux pane foreground/background colors and fresh Codex TUI theme.
 EOF
@@ -34,8 +34,31 @@ read_mode() {
   fi
   case "$mode" in
     dark|light|off) printf '%s\n' "$mode" ;;
-    *) printf 'light\n' ;;
+    *) printf 'dark\n' ;;
   esac
+}
+
+read_stored_mode() {
+  local mode=""
+  if [[ -r "$state_file" ]]; then
+    IFS= read -r mode < "$state_file" || true
+  fi
+  case "$mode" in
+    dark|light|off) printf '%s\n' "$mode" ;;
+    *) return 1 ;;
+  esac
+}
+
+write_mode() {
+  local mode="$1"
+  local tmp
+
+  mkdir -p "$(dirname "$state_file")"
+  tmp="$(mktemp "${state_file}.tmp.XXXXXX")"
+  if ! printf '%s\n' "$mode" > "$tmp" || ! chmod 600 "$tmp" || ! mv -f "$tmp" "$state_file"; then
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 colors_for_mode() {
@@ -158,17 +181,24 @@ case "$mode" in
     mode="${2:-$(read_mode)}"
     case "$mode" in
       light|dark) ;;
-      off) exit 0 ;;
+      off)
+        [[ "$(read_stored_mode 2>/dev/null || true)" == "off" ]] || exit 1
+        exit 0
+        ;;
       *) usage >&2; exit 2 ;;
     esac
     expected_theme="$(codex_tui_theme_for_mode "$mode")"
     actual_theme="$(awk -F'"' '/^[[:space:]]*theme[[:space:]]*=/{print $2; exit}' "$codex_config_file" 2>/dev/null || true)"
+    [[ "$(read_stored_mode 2>/dev/null || true)" == "$mode" ]] || exit 1
     [[ "$actual_theme" == "$expected_theme" ]] || exit 1
     exit 0
     ;;
+  reapply)
+    mode="$(read_mode)"
+    write_mode "$mode"
+    ;;
   light|dark|off)
-    mkdir -p "$(dirname "$state_file")"
-    printf '%s\n' "$mode" > "$state_file"
+    write_mode "$mode"
     ;;
   *)
     usage >&2
@@ -229,7 +259,7 @@ read_local_mode() {
   fi
   case "$mode" in
     light|dark|off) printf '%s\n' "$mode" ;;
-    *) printf 'light\n' ;;
+    *) printf 'dark\n' ;;
   esac
 }
 
@@ -243,7 +273,7 @@ while true; do
 
   case "$remote_mode" in
     light|dark|off)
-      if [[ "$remote_mode" != "$(read_local_mode)" ]]; then
+      if [[ "$remote_mode" != "$(read_local_mode)" ]] || ! "$theme_command" check "$remote_mode" >/dev/null 2>&1; then
         "$theme_command" "$remote_mode" >/dev/null
         echo "tmux-theme-sync-poll: applied $remote_mode"
       fi
@@ -274,6 +304,7 @@ if tmux has-session -t "$session" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "$session" "$cmd"
+tmux set-option -t "$session" @nomarh_scope system
 tmux display-message "started $session"
 SCRIPT
 
@@ -317,10 +348,24 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+existing = {}
+if path.is_file():
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        try:
+            parsed = shlex.split(raw_value, posix=True)
+        except ValueError:
+            continue
+        existing[key] = parsed[0] if parsed else ""
+
+configured_token = os.environ.get("TMUX_THEME_SYNC_TOKEN", "")
 values = {
     "TMUX_THEME_SYNC_URL": os.environ.get("TMUX_THEME_SYNC_URL", "https://theme.nomarh.com"),
     "TMUX_THEME_SYNC_ENABLED": os.environ.get("TMUX_THEME_SYNC_ENABLED", "true"),
-    "TMUX_THEME_SYNC_TOKEN": os.environ.get("TMUX_THEME_SYNC_TOKEN", ""),
+    "TMUX_THEME_SYNC_TOKEN": configured_token or existing.get("TMUX_THEME_SYNC_TOKEN", ""),
     "TMUX_THEME_SYNC_INTERVAL": os.environ.get("TMUX_THEME_SYNC_INTERVAL", "5"),
 }
 path.parent.mkdir(parents=True, exist_ok=True)
@@ -329,17 +374,48 @@ path.write_text("".join(lines), encoding="utf-8")
 path.chmod(0o600)
 PY
 
+if [[ -r "$HOME/.config/tmux-theme-sync/env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$HOME/.config/tmux-theme-sync/env"
+  set +a
+fi
+
+# Keep tlist available for the real tmux session picker.
+if [[ -f "$HOME/.zshrc" ]]; then
+  sed -i '/^alias tlist="tmux-theme"$/d' "$HOME/.zshrc"
+fi
+
 if ! grep -q '# Tmux theme aliases' "$HOME/.zshrc" 2>/dev/null; then
   cat >> "$HOME/.zshrc" <<'EOF'
 
 # Tmux theme aliases
-alias tlist="tmux-theme"
 alias tlight="tmux-theme light"
 alias tdark="tmux-theme dark"
 alias codex-theme="tmux-theme"
 alias tsync-on="tmux-theme-sync-enable"
 alias tsync-off="tmux-theme-sync-disable"
 EOF
+fi
+
+# Reapply every startup so an absent/invalid state becomes dark and the Codex
+# config is repaired before a fresh TUI starts, even when remote sync is off.
+"$HOME/.local/bin/tmux-theme" reapply >/dev/null
+
+# If the managed Codex runtime is installed, repair both its pinned dark state
+# and stable wrapper, then validate the active release. A damaged or incomplete
+# optional manager must remain visible without blocking workspace startup.
+codex_theme_guard="$HOME/.local/libexec/codex-theme-manager/codex-theme-guard"
+if [[ -e "$codex_theme_guard" ]]; then
+  if [[ ! -x "$codex_theme_guard" ]]; then
+    printf 'tmux-theme-sync: warning: Codex theme guard is not executable: %s\n' "$codex_theme_guard" >&2
+  elif ! "$codex_theme_guard" \
+    --repair-state \
+    --repair-wrapper \
+    --check-wrapper \
+    --quiet; then
+    printf 'tmux-theme-sync: warning: Codex theme manager self-heal failed; workspace startup will continue\n' >&2
+  fi
 fi
 
 theme_sync_enabled="${TMUX_THEME_SYNC_ENABLED:-true}"

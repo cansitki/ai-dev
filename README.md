@@ -9,7 +9,7 @@ A lean Coder template for Nomarh development workspaces. It keeps the tools we a
 - **Claude Code** - Anthropic coding agent with CLI and Coder app access
 - **Codex usage guard** - Local usage guard for unattended Codex runs using Codex session telemetry
 - **OpenAI/Codex env support** - `OPENAI_API_KEY` can be supplied through template parameters
-- **Tmux/Codex theme sync** - Polls `cansitki/tmux-theme-sync` so tmux panes and fresh Codex sessions follow the Mac light/dark mode
+- **Tmux/Codex theme sync** - Starts safely in dark mode, repairs Codex theme state on workspace startup, and optionally follows the Mac light/dark mode through `cansitki/tmux-theme-sync`
 
 ### Development Environment
 
@@ -175,7 +175,10 @@ tmux-theme-sync-start
 ```
 
 The poller starts only when `tmux_theme_sync_token` is provided and `tmux_theme_sync_enabled` is true. The token is written to `~/.config/tmux-theme-sync/env` with `0600` permissions.
-The installed runtime also writes `~/.config/tmux-theme-sync/source`; current baseline is `cansitki/tmux-theme-sync` commit `cd7d12c` with template hardening for disable/enable and Coder startup behavior.
+If a later template start receives an empty token, it preserves the existing nonempty token instead of disabling a working sync installation. Missing or invalid `~/.codex/tmux-theme` state defaults to `dark`; every workspace start atomically persists that state, reapplies terminal colors, and repairs `[tui].theme` in `~/.codex/config.toml`.
+When the optional Codex theme manager is installed, startup also asks its guard to repair the pinned dark state and managed `~/.local/bin/codex` wrapper, then validates the active release. Guard failures emit a warning but do not block workspace startup.
+The poller also runs the repair when the remote mode already matches the local state, and its tmux session is marked with `@nomarh_scope=system` so normal project session views can hide it.
+The installed runtime also writes `~/.config/tmux-theme-sync/source`; current baseline is `cansitki/tmux-theme-sync` commit `be7cae0`, including the fail-closed patched Codex release manager and the template hardening for Coder startup behavior.
 
 Useful aliases:
 
@@ -186,6 +189,8 @@ tsync-on
 tsync-off
 codex-theme status
 ```
+
+`tlist` remains reserved for the Nomarh tmux session picker; theme controls do not replace it with an alias.
 
 `tsync-off` writes `~/.config/tmux-theme-sync/disabled` and stops local polling, so one workspace can stay light/dark manually while other workspaces continue following the shared Worker.
 
