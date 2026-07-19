@@ -198,6 +198,9 @@ exit 0
                 self.assertEqual(output.count(direct), 2)
                 self.assertEqual(output.count(passthrough), 1)
 
+        tmux_log = (self.root / "tmux.log").read_text(encoding="utf-8")
+        self.assertIn("set-hook -g client-attached", tmux_log)
+
     def test_sync_session_is_system_scoped_and_tlist_alias_is_removed(self):
         self._install()
         zshrc = (self.home / ".zshrc").read_text(encoding="utf-8")
@@ -227,6 +230,12 @@ exit 0
                 if line.startswith("alias tlist=")
             ]
             self.assertEqual(alias_lines, [], path)
+
+    def test_picker_reapplies_theme_before_showing_a_new_terminal(self):
+        picker = (REPO_ROOT / "scripts" / "tmux-picker").read_text(encoding="utf-8")
+        reapply = '"$THEME_SWITCHER" reapply'
+        self.assertIn(reapply, picker)
+        self.assertLess(picker.index(reapply), picker.index("while true; do"))
 
     def test_startup_guard_repairs_state_and_wrapper_without_blocking_failure(self):
         guard_log = self.root / "codex-theme-guard.log"

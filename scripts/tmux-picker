@@ -6,6 +6,14 @@
 set -u
 
 PROJECTS_DIR="${HOME}/projects"
+THEME_SWITCHER="${HOME}/.local/bin/tmux-theme"
+
+# This picker runs before the terminal becomes a tmux client, so it cannot
+# receive tmux's client-attached hook yet. Emit the stored OSC palette directly
+# now; the first clear below removes the switcher's status line.
+if [[ -x "$THEME_SWITCHER" ]]; then
+  "$THEME_SWITCHER" reapply 2>/dev/null || true
+fi
 
 while true; do
   clear

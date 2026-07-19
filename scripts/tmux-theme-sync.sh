@@ -229,6 +229,9 @@ apply_to_tmux() {
   fi
 
   tmux set-option -g allow-passthrough on 2>/dev/null || true
+  tmux set-hook -g client-attached \
+    "run-shell -b '$HOME/.local/bin/tmux-theme reapply >/dev/null 2>&1'" \
+    2>/dev/null || true
   apply_tmux_styles "$mode"
 
   while IFS= read -r win; do
