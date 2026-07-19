@@ -69,6 +69,14 @@ colors_for_mode() {
   esac
 }
 
+palette_fallbacks_for_mode() {
+  case "$1" in
+    dark) printf '%s %s\n' '#3a3a3a' '#eeeeee' ;;
+    light) printf '%s %s\n' '#ffffff' '#ffffff' ;;
+    *) return 1 ;;
+  esac
+}
+
 codex_tui_theme_for_mode() {
   case "$1" in
     dark) printf '%s\n' 'base16-ocean-dark' ;;
@@ -119,10 +127,15 @@ set_codex_tui_theme() {
 }
 
 osc_sequence() {
-  local fg="$1" bg="$2"
+  local mode="$1" fg="$2" bg="$3" color_237 color_255
+  read -r color_237 color_255 < <(palette_fallbacks_for_mode "$mode")
+
   printf '\033]10;%s\007\033]11;%s\007' "$fg" "$bg"
+  printf '\033]4;237;%s\007\033]4;255;%s\007' "$color_237" "$color_255"
   printf '\033Ptmux;\033\033]10;%s\007\033\\' "$fg"
   printf '\033Ptmux;\033\033]11;%s\007\033\\' "$bg"
+  printf '\033Ptmux;\033\033]4;237;%s\007\033\\' "$color_237"
+  printf '\033Ptmux;\033\033]4;255;%s\007\033\\' "$color_255"
 }
 
 tmux_styles_for_mode() {
@@ -225,12 +238,12 @@ apply_to_tmux() {
 
   while IFS= read -r tty; do
     [[ -n "$tty" && -w "$tty" ]] || continue
-    osc_sequence "$fg" "$bg" > "$tty" || true
+    osc_sequence "$mode" "$fg" "$bg" > "$tty" || true
   done < <(tmux list-panes -a -F '#{pane_tty}' 2>/dev/null | sort -u || true)
 
   while IFS= read -r tty; do
     [[ -n "$tty" && -w "$tty" ]] || continue
-    osc_sequence "$fg" "$bg" > "$tty" || true
+    osc_sequence "$mode" "$fg" "$bg" > "$tty" || true
   done < <(tmux list-clients -F '#{client_tty}' 2>/dev/null | sort -u || true)
 }
 
@@ -300,7 +313,7 @@ read -r fg bg < <(colors_for_mode "$mode")
 set_codex_tui_theme "$(codex_tui_theme_for_mode "$mode")"
 
 if [[ -t 1 ]]; then
-  osc_sequence "$fg" "$bg"
+  osc_sequence "$mode" "$fg" "$bg"
 fi
 
 apply_to_tmux "$mode" "$fg" "$bg"

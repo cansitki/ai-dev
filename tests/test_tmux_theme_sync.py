@@ -27,6 +27,12 @@ printf '%s\n' "$*" >> "${TMUX_TEST_LOG:?}"
 if [[ "${1:-}" == "has-session" ]]; then
   exit 1
 fi
+if [[ "${1:-}" == "list-panes" && -n "${TMUX_TEST_TTY:-}" ]]; then
+  printf '%s\n' "$TMUX_TEST_TTY"
+fi
+if [[ "${1:-}" == "list-clients" && -n "${TMUX_TEST_TTY:-}" ]]; then
+  printf '%s\n' "$TMUX_TEST_TTY"
+fi
 exit 0
 """,
         )
@@ -163,6 +169,34 @@ exit 0
         self.assertEqual(result.returncode, 42)
         self.assertIn("applied dark", result.stdout)
         self.assertIn('theme = "base16-ocean-dark"', config_file.read_text(encoding="utf-8"))
+
+    def test_switcher_applies_osc4_fallbacks_directly_and_through_tmux(self):
+        tty_file = self.root / "theme.tty"
+        tty_file.write_bytes(b"")
+        env = self._environment(TMUX_TEST_TTY=str(tty_file))
+        self._install(TMUX_TEST_TTY=str(tty_file))
+        switcher = self.home / ".local" / "bin" / "tmux-theme"
+
+        expected = {
+            "light": {237: "#ffffff", 255: "#ffffff"},
+            "dark": {237: "#3a3a3a", 255: "#eeeeee"},
+        }
+        for mode, palette in expected.items():
+            subprocess.run(
+                [str(switcher), mode],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            output = tty_file.read_bytes()
+            for index, color in palette.items():
+                direct = f"\x1b]4;{index};{color}\x07".encode()
+                passthrough = (
+                    f"\x1bPtmux;\x1b\x1b]4;{index};{color}\x07\x1b\\".encode()
+                )
+                self.assertEqual(output.count(direct), 2)
+                self.assertEqual(output.count(passthrough), 1)
 
     def test_sync_session_is_system_scoped_and_tlist_alias_is_removed(self):
         self._install()
