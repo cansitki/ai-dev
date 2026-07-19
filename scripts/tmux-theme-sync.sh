@@ -7,8 +7,8 @@ mkdir -p "$HOME/.local/bin" "$HOME/.config/tmux-theme-sync" "$HOME/.codex"
 
 cat > "$HOME/.config/tmux-theme-sync/source" <<'EOF'
 repo=cansitki/tmux-theme-sync
-baseline_commit=be7cae0
-baseline_subject=Protect patched Codex theme releases
+baseline_commit=951f624
+baseline_subject=Make Codex light and dark themes switch live
 runtime=ai-dev-template-hardened
 EOF
 
@@ -23,7 +23,7 @@ usage() {
   cat <<'EOF'
 Usage: tmux-theme light|dark|off|reapply|status|check [mode]
 
-Switches tmux pane foreground/background colors and fresh Codex TUI theme.
+Switches the terminal, tmux chrome, and Codex TUI between light and dark.
 EOF
 }
 
@@ -125,14 +125,98 @@ osc_sequence() {
   printf '\033Ptmux;\033\033]11;%s\007\033\\' "$bg"
 }
 
+tmux_styles_for_mode() {
+  case "$1" in
+    dark)
+      printf '%s\n' \
+        'bg=#1e1e1e,fg=#dcddde' \
+        'bg=#3f3f46,fg=#f4f4f5' \
+        'bg=#18181b,fg=#facc15' \
+        'bg=#374151,fg=#f9fafb' \
+        'fg=#4b5563' \
+        'fg=#60a5fa' \
+        'bg=#1e1e1e,fg=#a1a1aa' \
+        'bg=#3f3f46,fg=#ffffff,bold'
+      ;;
+    light)
+      printf '%s\n' \
+        'bg=#e5e7eb,fg=#111827' \
+        'bg=#fef3c7,fg=#111827' \
+        'bg=#ffffff,fg=#92400e' \
+        'bg=#bfdbfe,fg=#111827' \
+        'fg=#9ca3af' \
+        'fg=#2563eb' \
+        'bg=#e5e7eb,fg=#4b5563' \
+        'bg=#ffffff,fg=#111827,bold'
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+apply_tmux_styles() {
+  local mode="$1"
+  local styles=()
+  mapfile -t styles < <(tmux_styles_for_mode "$mode")
+
+  tmux set-option -g status-style "${styles[0]}"
+  tmux set-option -g message-style "${styles[1]}"
+  tmux set-option -g message-command-style "${styles[2]}"
+  tmux set-window-option -g mode-style "${styles[3]}"
+  tmux set-window-option -g pane-border-style "${styles[4]}"
+  tmux set-window-option -g pane-active-border-style "${styles[5]}"
+  tmux set-window-option -g window-status-style "${styles[6]}"
+  tmux set-window-option -g window-status-current-style "${styles[7]}"
+}
+
+style_contains_all_tokens() {
+  local actual="$1" expected="$2" token
+  while IFS= read -r token; do
+    [[ -n "$token" ]] || continue
+    case ",$actual," in
+      *",$token,"*) ;;
+      *) return 1 ;;
+    esac
+  done < <(printf '%s\n' "$expected" | tr ',' '\n')
+}
+
+tmux_styles_match_mode() {
+  local mode="$1"
+  local styles=() actual
+
+  command -v tmux >/dev/null 2>&1 || return 0
+  tmux list-sessions >/dev/null 2>&1 || return 0
+  mapfile -t styles < <(tmux_styles_for_mode "$mode")
+
+  actual="$(tmux show-options -gv status-style 2>/dev/null || true)"
+  style_contains_all_tokens "$actual" "${styles[0]}" || return 1
+  actual="$(tmux show-options -gv message-style 2>/dev/null || true)"
+  style_contains_all_tokens "$actual" "${styles[1]}" || return 1
+  actual="$(tmux show-options -gv message-command-style 2>/dev/null || true)"
+  style_contains_all_tokens "$actual" "${styles[2]}" || return 1
+  actual="$(tmux show-window-options -gv mode-style 2>/dev/null || true)"
+  style_contains_all_tokens "$actual" "${styles[3]}" || return 1
+  actual="$(tmux show-window-options -gv pane-border-style 2>/dev/null || true)"
+  style_contains_all_tokens "$actual" "${styles[4]}" || return 1
+  actual="$(tmux show-window-options -gv pane-active-border-style 2>/dev/null || true)"
+  style_contains_all_tokens "$actual" "${styles[5]}" || return 1
+  actual="$(tmux show-window-options -gv window-status-style 2>/dev/null || true)"
+  style_contains_all_tokens "$actual" "${styles[6]}" || return 1
+  actual="$(tmux show-window-options -gv window-status-current-style 2>/dev/null || true)"
+  style_contains_all_tokens "$actual" "${styles[7]}" || return 1
+}
+
 apply_to_tmux() {
-  local fg="$1" bg="$2"
+  local mode="$1" fg="$2" bg="$3"
 
   if ! command -v tmux >/dev/null 2>&1; then
     return 0
   fi
+  if ! tmux list-sessions >/dev/null 2>&1; then
+    return 0
+  fi
 
   tmux set-option -g allow-passthrough on 2>/dev/null || true
+  apply_tmux_styles "$mode"
 
   while IFS= read -r win; do
     [[ -n "$win" ]] || continue
@@ -191,6 +275,7 @@ case "$mode" in
     actual_theme="$(awk -F'"' '/^[[:space:]]*theme[[:space:]]*=/{print $2; exit}' "$codex_config_file" 2>/dev/null || true)"
     [[ "$(read_stored_mode 2>/dev/null || true)" == "$mode" ]] || exit 1
     [[ "$actual_theme" == "$expected_theme" ]] || exit 1
+    tmux_styles_match_mode "$mode" || exit 1
     exit 0
     ;;
   reapply)
@@ -218,7 +303,7 @@ if [[ -t 1 ]]; then
   osc_sequence "$fg" "$bg"
 fi
 
-apply_to_tmux "$fg" "$bg"
+apply_to_tmux "$mode" "$fg" "$bg"
 redraw_codex_panes
 printf 'tmux-theme: %s\n' "$mode"
 SCRIPT
@@ -402,7 +487,7 @@ fi
 # config is repaired before a fresh TUI starts, even when remote sync is off.
 "$HOME/.local/bin/tmux-theme" reapply >/dev/null
 
-# If the managed Codex runtime is installed, repair both its pinned dark state
+# If the managed Codex runtime is installed, repair its current light/dark state
 # and stable wrapper, then validate the active release. A damaged or incomplete
 # optional manager must remain visible without blocking workspace startup.
 codex_theme_guard="$HOME/.local/libexec/codex-theme-manager/codex-theme-guard"

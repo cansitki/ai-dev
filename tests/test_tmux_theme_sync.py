@@ -90,6 +90,25 @@ exit 0
         self.assertIn('theme = "base16-ocean-dark"', config_file.read_text(encoding="utf-8"))
         self.assertEqual(stat.S_IMODE(state_file.stat().st_mode), 0o600)
         self.assertEqual(list(state_file.parent.glob("tmux-theme.tmp.*")), [])
+        tmux_calls = self.tmux_log.read_text(encoding="utf-8")
+        self.assertIn(
+            "set-option -g status-style bg=#1e1e1e,fg=#dcddde",
+            tmux_calls,
+        )
+
+        switcher = self.home / ".local" / "bin" / "tmux-theme"
+        subprocess.run(
+            [str(switcher), "light"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=self._environment(),
+        )
+        tmux_calls = self.tmux_log.read_text(encoding="utf-8")
+        self.assertIn(
+            "set-option -g status-style bg=#e5e7eb,fg=#111827",
+            tmux_calls,
+        )
 
         state_file.write_text("invalid\n", encoding="utf-8")
         config_file.write_text('[tui]\ntheme = "base16-ocean-light"\n', encoding="utf-8")
